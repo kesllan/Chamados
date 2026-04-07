@@ -18,6 +18,7 @@ var ConfigController = {
 
   /**
    * Retorna informações do usuário atual e suas permissões.
+   * Trava de segurança: Identifica se o usuário está autorizado.
    */
   getAppUserInfo: function() {
     var email = Session.getActiveUser().getEmail().toLowerCase().trim();
@@ -29,18 +30,22 @@ var ConfigController = {
     });
 
     var isAdmin = false;
-    if (userRecord && userRecord.admin !== undefined) {
-      var adminVal = String(userRecord.admin).toUpperCase().trim();
-      isAdmin = (adminVal === 'TRUE' || adminVal === 'VERDADEIRO');
-    }
+    var isAuthorized = false;
 
-    if (!userRecord) isAdmin = false;
+    if (userRecord) {
+      isAuthorized = true; // Está na lista, está autorizado
+      if (userRecord.admin !== undefined) {
+        var adminVal = String(userRecord.admin).toUpperCase().trim();
+        isAdmin = (adminVal === 'TRUE' || adminVal === 'VERDADEIRO');
+      }
+    }
 
     return {
       email: email,
+      isAuthorized: isAuthorized,
       isAdmin: isAdmin,
-      role: isAdmin ? 'Admin' : (userRecord ? 'Técnico' : 'Usuário'),
-      nome: userRecord ? userRecord.nome : 'Visitante',
+      role: isAdmin ? 'Admin' : (isAuthorized ? 'Técnico' : 'Não Autorizado'),
+      nome: userRecord ? userRecord.nome : 'Usuário Externo',
       setores: userRecord ? String(userRecord.setor || '').split(',').map(function(s) { return s.trim(); }) : []
     };
   },
@@ -121,21 +126,12 @@ var ConfigController = {
   },
 
   /**
-   * Executa a manutenção completa da estrutura e corrige duplicatas.
+   * Executa a manutenção completa da estrutura do banco de dados.
    */
   runDatabaseMaintenance: function() {
     try {
       this._checkAdmin();
-      var res = BaseRepository.autoMaintenance();
-      if (!res.success) return res;
-      
-      // Além da estrutura, corrige protocolos duplicados que causam erros de dados
-      var repairRes = MigrationService.fixDuplicateProtocols();
-      
-      return { 
-        success: true, 
-        message: res.message + "\n" + repairRes.message 
-      };
+      return BaseRepository.autoMaintenance();
     } catch (e) {
       Logger.log("Erro em ConfigController.runDatabaseMaintenance: " + e.toString());
       return { success: false, message: e.message };

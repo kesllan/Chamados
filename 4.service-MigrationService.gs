@@ -203,21 +203,71 @@ var MigrationService = {
     if (!sheet) return "Chamados: Aba não encontrada.";
     var data = sheet.getDataRange().getValues();
     var headers = data[0];
+    
     var colInep = headers.indexOf(AppConfig.COLUMNS_CHAMADOS.COD_INEP_ESCOLA);
+    var colSetor = headers.indexOf(AppConfig.COLUMNS_CHAMADOS.SETOR_ID);
+    var colTecnico = headers.indexOf(AppConfig.COLUMNS_CHAMADOS.TECNICO);
     var colEscolaForm = headers.indexOf(AppConfig.COLUMNS_CHAMADOS.ESCOLA);
+    var colData = headers.indexOf(AppConfig.COLUMNS_CHAMADOS.DATA_ABERTURA);
+    var colMes = headers.indexOf(AppConfig.COLUMNS_CHAMADOS.MES_REFERENCIA);
+
+    // Mapas para busca rápida
+    var schoolsMap = SchoolRepository.getAllSchoolsMap();
+    
     var totalAtualizado = 0;
+
     for (var i = 1; i < data.length; i++) {
       var rowIndex = i + 1;
       var updates = {};
+      var alterou = false;
+
       var nomeEscolaRaw = String(data[i][colEscolaForm]).trim();
+      var inepEncontrado = "";
+      
+      // 1. Tenta extrair INEP do nome da escola (padrão "123456 - Nome")
       var matchInep = nomeEscolaRaw.match(/^(\d+)/);
-      if (matchInep && colInep > -1 && !data[i][colInep]) {
-        updates[AppConfig.COLUMNS_CHAMADOS.COD_INEP_ESCOLA] = matchInep[0];
+      if (matchInep) inepEncontrado = matchInep[0];
+
+      // 2. Preenche Cod_INEP_Escola se estiver vazio
+      if (colInep > -1 && !data[i][colInep] && inepEncontrado) {
+        updates[AppConfig.COLUMNS_CHAMADOS.COD_INEP_ESCOLA] = inepEncontrado;
+        alterou = true;
+      }
+
+      // Busca dados da escola para obter o Setor
+      var schoolInfo = schoolsMap[nomeEscolaRaw] || (inepEncontrado ? schoolsMap[inepEncontrado] : null);
+
+      // 3. Preenche Setor_ID se estiver vazio
+      if (colSetor > -1 && !data[i][colSetor] && schoolInfo && schoolInfo.setor) {
+        updates[AppConfig.COLUMNS_CHAMADOS.SETOR_ID] = schoolInfo.setor;
+        alterou = true;
+      }
+
+      // 4. Preenche Técnico com base no setor se estiver vazio
+      var idSetor = updates[AppConfig.COLUMNS_CHAMADOS.SETOR_ID] || (colSetor > -1 ? data[i][colSetor] : "");
+      if (colTecnico > -1 && !data[i][colTecnico] && idSetor) {
+        var emailTecnico = ConfigController.findTechnicianBySector(idSetor);
+        if (emailTecnico) {
+          updates[AppConfig.COLUMNS_CHAMADOS.TECNICO] = emailTecnico;
+          alterou = true;
+        }
+      }
+
+      // 5. Preenche Mês de Referência se estiver vazio
+      if (colMes > -1 && !data[i][colMes]) {
+        var dt = DateUtils.ensureDate(data[i][colData]);
+        if (dt) {
+          updates[AppConfig.COLUMNS_CHAMADOS.MES_REFERENCIA] = Utilities.formatDate(dt, Session.getScriptTimeZone(), "yyyy-MM");
+          alterou = true;
+        }
+      }
+
+      if (alterou) {
         TicketRepository.updateTicketData(rowIndex, updates);
         totalAtualizado++;
       }
     }
-    return "Chamados: " + totalAtualizado + " registros enriquecidos.";
+    return "Chamados: " + totalAtualizado + " registros enriquecidos com dados de escola, setor e técnico.";
   },
 
   normalizar: function(t) {

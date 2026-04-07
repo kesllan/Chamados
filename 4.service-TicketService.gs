@@ -29,6 +29,12 @@ var TicketService = {
     // Sincroniza dados da Escola (Enriquecimento)
     var schoolData = SchoolService.syncSchoolData({ escola: nomeEscola });
 
+    // Busca Técnico Responsável pelo Setor da Escola
+    var tecnicoResponsavel = "";
+    if (schoolData.setor) {
+      tecnicoResponsavel = ConfigController.findTechnicianBySector(schoolData.setor);
+    }
+
     // Calcula Prazo (SLA)
     var feriados = HolidayRepository.findAll();
     var feriadosStr = feriados.map(function(d) {
@@ -44,11 +50,13 @@ var TicketService = {
     updates[AppConfig.COLUMNS_CHAMADOS.STATUS] = "Novo";
     updates[AppConfig.COLUMNS_CHAMADOS.PREVISAO] = prazo;
     updates[AppConfig.COLUMNS_CHAMADOS.ULTIMA_ATUALIZACAO] = now;
+    updates[AppConfig.COLUMNS_CHAMADOS.TECNICO] = tecnicoResponsavel;
     
     // Dados da Escola (se encontrados)
     if (schoolData.email) updates[AppConfig.COLUMNS_CHAMADOS.EMAIL_INSTITUCIONAL] = schoolData.email;
     if (schoolData.municipio) updates[AppConfig.COLUMNS_CHAMADOS.MUNICIPIO] = schoolData.municipio;
     if (schoolData.inep) updates[AppConfig.COLUMNS_CHAMADOS.COD_INEP_ESCOLA] = schoolData.inep;
+    if (schoolData.setor) updates[AppConfig.COLUMNS_CHAMADOS.SETOR_ID] = schoolData.setor;
     
     // Inicializa métricas zeradas
     updates[AppConfig.COLUMNS_CHAMADOS.DIAS_EM_ABERTO] = 0;
