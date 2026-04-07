@@ -421,42 +421,65 @@ var TicketService = {
 
   /**
    * Gera o próximo protocolo no padrão YYYYNNNN (ex: 20260027).
-   * Otimizado para ler apenas a última linha da planilha.
+   * Otimizado: Lê e atualiza o último protocolo na aba de controle.
    * @return {string} O novo protocolo formatado.
    */
   _generateNextProtocol: function() {
     try {
       var now = new Date();
       var year = now.getFullYear().toString();
-      var ss = BaseRepository.getSpreadsheet();
-      var sheet = ss.getSheetByName(AppConfig.SHEET_NAMES.CHAMADOS);
-      var lastRow = sheet.getLastRow();
       
-      // Se não houver dados (apenas cabeçalho), começa do 0001
-      if (lastRow <= 1) {
-        return year + "0001";
-      }
+      // Tenta obter o último protocolo do controle
+      var lastProtocol = BaseRepository.getSystemConfig("ULTIMO_PROTOCOLO");
+      var nextSeq = 1;
 
-      // Localiza a coluna de Protocolo
-      var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-      var colIdx = headers.indexOf(AppConfig.COLUMNS_CHAMADOS.PROTOCOLO) + 1;
-      
-      // Lê o protocolo da última linha
-      var lastProtocol = String(sheet.getRange(lastRow, colIdx).getValue());
+      if (lastProtocol && String(lastProtocol).length === 8) {
+        var lastYear = String(lastProtocol).substring(0, 4);
+        var lastSeq = parseInt(String(lastProtocol).substring(4), 10);
 
-      // Verifica se o último protocolo segue o padrão YYYYNNNN e é do ano atual
-      if (lastProtocol.indexOf(year) === 0 && lastProtocol.length === 8) {
-        var seqPart = lastProtocol.substring(4);
-        var nextSeq = parseInt(seqPart, 10) + 1;
-        var seqStr = ("0000" + nextSeq).slice(-4);
-        return year + seqStr;
+        if (lastYear === year) {
+          // Mesmo ano, incrementa
+          nextSeq = lastSeq + 1;
+        } else {
+          // Mudou o ano, reinicia em 0001
+          nextSeq = 1;
+        }
       } else {
-        // Se mudou o ano ou o formato era o antigo (timestamp), inicia nova sequência para o ano atual
-        return year + "0001";
+        // Se não houver no controle, busca o maior na planilha (Fallback de segurança na primeira vez)
+        var ss = BaseRepository.getSpreadsheet();
+        var sheet = ss.getSheetByName(AppConfig.SHEET_NAMES.CHAMADOS);
+        var lastRow = sheet.getLastRow();
+        if (lastRow > 1) {
+          var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+          var colIdx = headers.indexOf(AppConfig.COLUMNS_CHAMADOS.PROTOCOLO);
+          if (colIdx >= 0) {
+            var protocols = sheet.getRange(2, colIdx + 1, lastRow - 1, 1).getValues();
+            var maxSeq = 0;
+            for (var i = 0; i < protocols.length; i++) {
+              var p = String(protocols[i][0]);
+              if (p.indexOf(year) === 0 && p.length === 8) {
+                var s = parseInt(p.substring(4), 10);
+                if (s > maxSeq) maxSeq = s;
+              }
+            }
+            nextSeq = maxSeq + 1;
+          }
+        }
       }
+
+      var nextProtocol = year + ("0000" + nextSeq).slice(-4);
+      
+      // Salva no controle para o próximo com descrição clara
+      BaseRepository.setSystemConfig(
+        "ULTIMO_PROTOCOLO", 
+        nextProtocol, 
+        "Armazena o último protocolo gerado pelo sistema para garantir sequência única e evitar duplicidade."
+      );
+      
+      return nextProtocol;
+
     } catch (e) {
-      Logger.log("Erro ao gerar protocolo (método otimizado): " + e.toString());
-      // Fallback para timestamp em caso de erro crítico para não travar a abertura do chamado
+      Logger.log("Erro ao gerar protocolo (controle): " + e.toString());
       return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMddHHmmss");
     }
   }

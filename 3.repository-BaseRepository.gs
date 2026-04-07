@@ -100,15 +100,104 @@ var BaseRepository = {
   },
 
   /**
+   * Obtém um valor de configuração da aba Config_Sistema.
+   */
+  getSystemConfig: function(key) {
+    try {
+      var ss = this.getSpreadsheet();
+      var sheet = ss.getSheetByName(AppConfig.SHEET_NAMES.APP_CONTROLE);
+      if (!sheet) return null;
+
+      var data = sheet.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) { // Pula cabeçalho
+        if (data[i][0] === key) return data[i][1];
+      }
+      return null;
+    } catch (e) {
+      Logger.log("Erro em getSystemConfig: " + e.toString());
+      return null;
+    }
+  },
+
+  /**
+   * Salva um valor de configuração na aba Config_Sistema.
+   * Agora suporta uma descrição para facilitar o preenchimento manual.
+   */
+  setSystemConfig: function(key, value, description) {
+    try {
+      var ss = this.getSpreadsheet();
+      var sheet = ss.getSheetByName(AppConfig.SHEET_NAMES.APP_CONTROLE);
+      
+      // Se a aba não existe ou está vazia, reconstrói com os novos rótulos
+      if (!sheet || sheet.getLastRow() === 0) {
+        this._initAppControleSheet();
+        sheet = ss.getSheetByName(AppConfig.SHEET_NAMES.APP_CONTROLE);
+      }
+
+      var data = sheet.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        if (data[i][0] === key) {
+          sheet.getRange(i + 1, 2).setValue(value);
+          if (description) sheet.getRange(i + 1, 3).setValue(description);
+          return;
+        }
+      }
+      // Se não encontrou, adiciona nova linha
+      sheet.appendRow([key, value, description || "Configuração do sistema"]);
+    } catch (e) {
+      Logger.log("Erro em setSystemConfig: " + e.toString());
+    }
+  },
+
+  /**
+   * Inicializa a aba de controle com rótulos amigáveis e formatação.
+   */
+  _initAppControleSheet: function() {
+    var ss = this.getSpreadsheet();
+    var sheet = ss.getSheetByName(AppConfig.SHEET_NAMES.APP_CONTROLE);
+    if (!sheet) {
+      sheet = ss.insertSheet(AppConfig.SHEET_NAMES.APP_CONTROLE);
+    } else {
+      sheet.clear();
+    }
+    
+    var headers = ["Identificador (Key)", "Valor Atual", "Descrição do Parâmetro"];
+    sheet.getRange(1, 1, 1, 3).setValues([headers])
+         .setBackground("#334155")
+         .setFontColor("white")
+         .setFontWeight("bold")
+         .setHorizontalAlignment("center");
+    
+    sheet.setColumnWidth(1, 200);
+    sheet.setColumnWidth(2, 200);
+    sheet.setColumnWidth(3, 450);
+    sheet.setFrozenRows(1);
+  },
+
+  /**
    * Garante que a estrutura das planilhas esteja correta.
-   * Cria colunas faltantes baseadas no AppConfig sem perder dados.
    */
   ensureColumns: function(sheetName, expectedColumns) {
     var ss = this.getSpreadsheet();
     var sheet = ss.getSheetByName(sheetName);
-    if (!sheet) return;
+    
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      var names = [];
+      if (typeof expectedColumns === 'object') {
+        for (var k in expectedColumns) names.push(expectedColumns[k]);
+      } else {
+        names = expectedColumns;
+      }
+      sheet.getRange(1, 1, 1, names.length).setValues([names])
+           .setBackground("#1e40af")
+           .setFontColor("white")
+           .setFontWeight("bold");
+      return;
+    }
 
-    var currentHeaders = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
+    var lastCol = sheet.getLastColumn();
+    var currentHeaders = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
     var colunasParaAdicionar = [];
 
     // Obtém os nomes das colunas esperadas
@@ -130,7 +219,6 @@ var BaseRepository = {
       sheet.getRange(1, startCol, 1, colunasParaAdicionar.length).setValues([colunasParaAdicionar])
            .setBackground("#f3f3f3")
            .setFontWeight("bold");
-      Logger.log("Manutenção: Adicionadas colunas " + colunasParaAdicionar.join(", ") + " na aba " + sheetName);
     }
   },
 
@@ -140,14 +228,23 @@ var BaseRepository = {
   autoMaintenance: function() {
     try {
       this.ensureColumns(AppConfig.SHEET_NAMES.CHAMADOS, AppConfig.COLUMNS_CHAMADOS);
-      this.ensureColumns(AppConfig.SHEET_NAMES.CONFIG_TECNICOS, ["Email_Tecnico", "Nome_Exibicao", "Masp", "Setor_Responsavel", "Permissao_Admin"]);
-      this.ensureColumns(AppConfig.SHEET_NAMES.DIM_ESCOLAS, ["Cod_INEP", "Nome_Escola", "Municipio", "Setor_Regiao", "Email_Diretor", "Celular_Diretor", "Endereco", "Latitude", "Longitude"]);
-      this.ensureColumns(AppConfig.SHEET_NAMES.LOG_STATUS, ["Data_Hora", "Protocolo", "Acao", "Status_De", "Status_Para", "Tecnico_Executor", "Observacoes"]);
+      this.ensureColumns(AppConfig.SHEET_NAMES.CONFIG_TECNICOS, AppConfig.COLUMNS_TECNICOS);
+      this.ensureColumns(AppConfig.SHEET_NAMES.DIM_ESCOLAS, AppConfig.COLUMNS_ESCOLAS);
+      this.ensureColumns(AppConfig.SHEET_NAMES.LOG_STATUS, AppConfig.COLUMNS_LOG);
+      this.ensureColumns(AppConfig.SHEET_NAMES.CONFIG_FERIADOS, AppConfig.COLUMNS_FERIADOS);
       
+      // Inicializa/Repara Aba de Controle
+      var ss = this.getSpreadsheet();
+      var sheetCtrl = ss.getSheetByName(AppConfig.SHEET_NAMES.APP_CONTROLE);
+      if (!sheetCtrl || sheetCtrl.getLastRow() === 0 || sheetCtrl.getRange(1,1).getValue() !== "Identificador (Key)") {
+        this._initAppControleSheet();
+      }
+
       return { success: true, message: "Estrutura do Banco de Dados verificada/atualizada!" };
     } catch (e) {
       Logger.log("Erro em autoMaintenance: " + e.toString());
       return { success: false, message: e.toString() };
     }
   }
+};
 };

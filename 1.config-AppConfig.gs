@@ -14,7 +14,8 @@ var AppConfig = {
     CONFIG_FERIADOS: 'Config_Feriados',
     DIM_ESCOLAS: 'Dim_Escolas',
     LOG_STATUS: 'BD_Historico_Status',
-    CONTATOS_DIRETORES: 'Contatos Diretores'
+    CONTATOS_DIRETORES: 'Contatos Diretores',
+    APP_CONTROLE: 'Config_Sistema'
   },
 
   FORM_FIELDS: {
@@ -73,7 +74,7 @@ var AppConfig = {
     DIAS_EM_ABERTO: 'Dias_Em_Aberto',
     DIAS_UTEIS_ABERTO: 'Dias_Uteis_Aberto',
     SLA_ESTOURADO: 'SLA_Estourado',
-    DATA_PREVISAO: 'Data_Previsao',
+    PREVISAO: 'Data_Previsao',
     SOLUCAO_TECNICA: 'Solucao_Tecnica',
     SETOR_ID: 'Setor_ID',
     MES_REFERENCIA: 'Mes_Referencia',

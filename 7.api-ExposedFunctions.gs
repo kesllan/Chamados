@@ -80,8 +80,12 @@ function salvarFeriado(dados) {
   return ConfigController.saveHoliday(dados);
 }
 
-function excluirFeriado(id) { 
+function excluirFeriado(id) {
   return ConfigController.deleteHoliday(id);
+}
+
+function runDatabaseMaintenance() {
+  return ConfigController.runDatabaseMaintenance();
 }
 
 // =================================================================================

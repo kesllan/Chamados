@@ -110,5 +110,29 @@ var NotificationService = {
     } catch (e) {
       Logger.log("Erro ao enviar update Status: " + e.message);
     }
+  },
+
+  /**
+   * Notifica a escola sobre alteração de protocolo devido a manutenção/correção.
+   */
+  sendProtocolCorrection: function(email, dados) {
+    if (!email) return;
+    
+    var subject = "⚠️ ATUALIZAÇÃO DE PROTOCOLO - Chamado NTE: " + dados.escola;
+    var body = "Olá,\n\n" +
+                "Informamos que, devido a uma manutenção de rotina em nosso banco de dados para garantir a integridade das informações, o número de protocolo do seu chamado foi atualizado.\n\n" +
+                "• ESCOLA: " + dados.escola + "\n" +
+                "• PROTOCOLO ANTERIOR: " + dados.antigo + "\n" +
+                "• NOVO PROTOCOLO: " + dados.novo + "\n\n" +
+                "Por favor, utilize o NOVO número para qualquer consulta futura em nosso sistema.\n" +
+                "As demais informações e o histórico do seu chamado permanecem inalterados.\n\n" +
+                "Atenciosamente,\nEquipe NTE - Suporte Técnico";
+    
+    try {
+      MailApp.sendEmail(email, subject, body);
+      Logger.log("Notificação de correção enviada para: " + email);
+    } catch (e) {
+      Logger.log("Erro ao enviar notificação de correção: " + e.toString());
+    }
   }
 };

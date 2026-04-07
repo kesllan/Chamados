@@ -118,5 +118,27 @@ var ConfigController = {
   deleteHoliday: function(id) {
     this._checkAdmin();
     return HolidayRepository.delete(id);
+  },
+
+  /**
+   * Executa a manutenção completa da estrutura e corrige duplicatas.
+   */
+  runDatabaseMaintenance: function() {
+    try {
+      this._checkAdmin();
+      var res = BaseRepository.autoMaintenance();
+      if (!res.success) return res;
+      
+      // Além da estrutura, corrige protocolos duplicados que causam erros de dados
+      var repairRes = MigrationService.fixDuplicateProtocols();
+      
+      return { 
+        success: true, 
+        message: res.message + "\n" + repairRes.message 
+      };
+    } catch (e) {
+      Logger.log("Erro em ConfigController.runDatabaseMaintenance: " + e.toString());
+      return { success: false, message: e.message };
+    }
   }
 };
