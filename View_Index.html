@@ -54,7 +54,12 @@
 
     <div class="container-fluid main-content mt-4">
       <!-- Filtros -->
-      <div id="filter-bar" class="mb-3">
+      <div id="filter-bar" class="mb-3 d-flex align-items-center flex-wrap">
+        <div class="mr-3 mb-2">
+          <select id="select-ano" class="form-control form-control-sm font-weight-bold" onchange="mudarAno(this.value)" style="border-radius: 20px; width: 100px; height: 38px; border: 2px solid #005596; color: #005596;">
+            <!-- Preenchido via JS -->
+          </select>
+        </div>
         <div class="filter-chip active" data-filter="abertos" onclick="filtrarChamados('abertos', this)">
           <i class="material-icons">folder_open</i> Chamados Abertos <span class="badge badge-pill badge-status-count ml-1" id="count-abertos">0</span>
         </div>
@@ -224,25 +229,6 @@
                                   <option value="Presencial">Presencial</option>
                                   <option value="Remoto">Remoto</option>
                                 </select>
-                              </div>
-                              <div class="col-12 mb-2">
-                                <label class="small font-weight-bold uppercase">Técnicos Auxiliares (Opcional)</label>
-                                <select id="input-tecnicos-auxiliares" class="form-control" multiple style="height: 100px;">
-                                  <!-- Populado via JS -->
-                                </select>
-                                <small class="text-muted" style="font-size: 10px;">Segure Ctrl para selecionar vários.</small>
-                              </div>
-                              <div class="col-12 mb-2">
-                                <label class="small font-weight-bold uppercase">Nome do Servidor (Assinante)</label>
-                                <input type="text" id="input-nome-assinante" class="form-control" placeholder="Quem acompanhou o atendimento?">
-                              </div>
-                              <div class="col-6 mb-2">
-                                <label class="small font-weight-bold uppercase">Hora Início</label>
-                                <input type="time" id="input-hora-inicio" class="form-control">
-                              </div>
-                              <div class="col-6 mb-2">
-                                <label class="small font-weight-bold uppercase">Hora Fim</label>
-                                <input type="time" id="input-hora-fim" class="form-control">
                               </div>
                               <div class="col-12 mb-2">
                                 <label class="small font-weight-bold uppercase">Categoria Macro (Múltiplo)</label>

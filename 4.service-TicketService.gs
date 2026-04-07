@@ -18,9 +18,9 @@ var TicketService = {
     var row = e.range.getRow();
     var values = e.namedValues; // { "HeaderName": ["Value"] }
 
-    // Gera Protocolo: yyyyMMddHHmmss
+    // Gera Protocolo: YYYYNNNN (Ex: 20260001)
+    var protocolo = this._generateNextProtocol();
     var now = new Date();
-    var protocolo = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyyMMddHHmmss");
 
     // Extrai dados do formulário
     var escolaKey = AppConfig.COLUMNS_CHAMADOS.ESCOLA;
@@ -48,11 +48,11 @@ var TicketService = {
     // Dados da Escola (se encontrados)
     if (schoolData.email) updates[AppConfig.COLUMNS_CHAMADOS.EMAIL_INSTITUCIONAL] = schoolData.email;
     if (schoolData.municipio) updates[AppConfig.COLUMNS_CHAMADOS.MUNICIPIO] = schoolData.municipio;
-    if (schoolData.inep) updates[AppConfig.COLUMNS_CHAMADOS.COD_INEP] = schoolData.inep;
+    if (schoolData.inep) updates[AppConfig.COLUMNS_CHAMADOS.COD_INEP_ESCOLA] = schoolData.inep;
     
     // Inicializa métricas zeradas
-    updates[AppConfig.COLUMNS_CHAMADOS.DIAS_ABERTO] = 0;
-    updates[AppConfig.COLUMNS_CHAMADOS.DIAS_UTEIS] = 0;
+    updates[AppConfig.COLUMNS_CHAMADOS.DIAS_EM_ABERTO] = 0;
+    updates[AppConfig.COLUMNS_CHAMADOS.DIAS_UTEIS_ABERTO] = 0;
     updates[AppConfig.COLUMNS_CHAMADOS.SLA_ESTOURADO] = false;
 
     // Persiste
@@ -88,11 +88,11 @@ var TicketService = {
       if (!sheet) throw new Error("Aba Chamados não encontrada.");
 
       var now = new Date();
-      var protocolo = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyyMMddHHmmss");
+      var protocolo = this._generateNextProtocol();
       var userEmail = Session.getActiveUser().getEmail();
 
       // Busca dados complementares
-      var tecnicoResponsavel = ConfigController.findTechnicianBySector(dados.setor); // Precisa implementar ConfigController
+      var tecnicoResponsavel = ConfigController.findTechnicianBySector(dados.setor);
       var schoolData = SchoolService.syncSchoolData({ escola: dados.escola });
       
       // Monta linha
@@ -114,12 +114,12 @@ var TicketService = {
       newTicket[AppConfig.COLUMNS_CHAMADOS.OBSERVACOES] = "Abertura Manual por: " + userEmail;
       
       // Campos de Sistema
-      newTicket[AppConfig.COLUMNS_CHAMADOS.COD_INEP] = dados.inep;
+      newTicket[AppConfig.COLUMNS_CHAMADOS.COD_INEP_ESCOLA] = dados.inep;
       newTicket[AppConfig.COLUMNS_CHAMADOS.ULTIMA_ATUALIZACAO] = now;
       newTicket[AppConfig.COLUMNS_CHAMADOS.SETOR_ID] = dados.setor;
       newTicket[AppConfig.COLUMNS_CHAMADOS.ORIGEM_CHAMADO] = dados.origem;
-      newTicket[AppConfig.COLUMNS_CHAMADOS.DIAS_ABERTO] = 0;
-      newTicket[AppConfig.COLUMNS_CHAMADOS.DIAS_UTEIS] = 0;
+      newTicket[AppConfig.COLUMNS_CHAMADOS.DIAS_EM_ABERTO] = 0;
+      newTicket[AppConfig.COLUMNS_CHAMADOS.DIAS_UTEIS_ABERTO] = 0;
       newTicket[AppConfig.COLUMNS_CHAMADOS.SLA_ESTOURADO] = false;
       newTicket[AppConfig.COLUMNS_CHAMADOS.MES_REFERENCIA] = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM");
 
@@ -417,5 +417,47 @@ var TicketService = {
     }
     
     return count;
+  },
+
+  /**
+   * Gera o próximo protocolo no padrão YYYYNNNN (ex: 20260027).
+   * Otimizado para ler apenas a última linha da planilha.
+   * @return {string} O novo protocolo formatado.
+   */
+  _generateNextProtocol: function() {
+    try {
+      var now = new Date();
+      var year = now.getFullYear().toString();
+      var ss = BaseRepository.getSpreadsheet();
+      var sheet = ss.getSheetByName(AppConfig.SHEET_NAMES.CHAMADOS);
+      var lastRow = sheet.getLastRow();
+      
+      // Se não houver dados (apenas cabeçalho), começa do 0001
+      if (lastRow <= 1) {
+        return year + "0001";
+      }
+
+      // Localiza a coluna de Protocolo
+      var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      var colIdx = headers.indexOf(AppConfig.COLUMNS_CHAMADOS.PROTOCOLO) + 1;
+      
+      // Lê o protocolo da última linha
+      var lastProtocol = String(sheet.getRange(lastRow, colIdx).getValue());
+
+      // Verifica se o último protocolo segue o padrão YYYYNNNN e é do ano atual
+      if (lastProtocol.indexOf(year) === 0 && lastProtocol.length === 8) {
+        var seqPart = lastProtocol.substring(4);
+        var nextSeq = parseInt(seqPart, 10) + 1;
+        var seqStr = ("0000" + nextSeq).slice(-4);
+        return year + seqStr;
+      } else {
+        // Se mudou o ano ou o formato era o antigo (timestamp), inicia nova sequência para o ano atual
+        return year + "0001";
+      }
+    } catch (e) {
+      Logger.log("Erro ao gerar protocolo (método otimizado): " + e.toString());
+      // Fallback para timestamp em caso de erro crítico para não travar a abertura do chamado
+      return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMddHHmmss");
+    }
   }
 };

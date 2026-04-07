@@ -11,6 +11,7 @@ function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu('🛠️ Admin NTE (Novo)')
     .addItem('🔄 Sincronizar Escolas', 'runSchoolSync')
+    .addItem('📋 Sincronizar com Google Forms', 'runFormSync')
     .addItem('📊 Processar Métricas (SLA/Dias)', 'runMetricsUpdate')
     .addItem('📦 Migrar Chamados Legados (Enriquecer)', 'runLegacyMigration')
     .addSeparator()
@@ -18,6 +19,17 @@ function onOpen() {
     .addItem('🔍 Diagnóstico de Usuário', 'runDiagnostics')
     .addItem('🛠️ Diagnóstico de Planilha', 'runSheetDiagnostics')
     .addToUi();
+}
+
+function runFormSync() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var result = AdminController.runFormSync(); 
+    if(result.success) ui.alert("Sincronização Forms", result.message, ui.ButtonSet.OK);
+    else ui.alert("Erro", result.message, ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert("Erro", e.toString(), ui.ButtonSet.OK);
+  }
 }
 
 function onEdit(e) {

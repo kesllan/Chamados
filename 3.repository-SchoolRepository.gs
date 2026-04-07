@@ -22,6 +22,7 @@ var SchoolRepository = {
     var colFone = this._findHeader(headers, ['Celular_Diretor', 'Whatsapp_Diretor', 'Telefone']);
     var colLat = this._findHeader(headers, ['Latitude', 'Geo_Latitude']);
     var colLong = this._findHeader(headers, ['Longitude', 'Geo_Longitude']);
+    var colDiretor = this._findHeader(headers, ['Nome_Diretor_Atual', 'Diretor', 'Diretora']);
 
     var map = {};
     for (var i = 1; i < data.length; i++) {
@@ -37,7 +38,8 @@ var SchoolRepository = {
         setor: (colSetor > -1) ? row[colSetor] : "",
         fone: (colFone > -1) ? row[colFone] : "",
         lat: (colLat > -1) ? row[colLat] : "",
-        long: (colLong > -1) ? row[colLong] : ""
+        long: (colLong > -1) ? row[colLong] : "",
+        diretor: (colDiretor > -1) ? row[colDiretor] : ""
       };
 
       if (nome) map[nome] = schoolObj;

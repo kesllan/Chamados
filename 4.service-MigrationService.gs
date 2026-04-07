@@ -10,7 +10,7 @@ var MigrationService = {
   migrateAll: function() {
     var report = [];
     try {
-      // 1. Popula Dim_Escolas a partir de Contatos Diretores (Se a Dim_Escolas estiver vazia)
+      // 1. Popula Dim_Escolas a partir de Contatos Diretores
       report.push(this.migrateSchoolsFromContacts());
       
       // 2. Migra técnicos
@@ -18,6 +18,9 @@ var MigrationService = {
       
       // 3. Vincula setores (Tabs Setor -> Dim_Escolas)
       report.push(this.migrateSchoolsFromSectors());
+      
+      // 4. Enriquece chamados legados
+      report.push(this.migrateLegacyTickets());
       
       return { success: true, message: report.join("\n") };
     } catch (e) {
@@ -38,20 +41,19 @@ var MigrationService = {
     if (!sheetContacts) return "Contatos: Aba '" + AppConfig.SHEET_NAMES.CONTATOS_DIRETORES + "' não encontrada. Pulando.";
     if (!sheetDim) return "Contatos: Aba Dim_Escolas não encontrada.";
     
-    // Se a Dim_Escolas já tem muitos dados, pula para evitar duplicados. 
-    if (sheetDim.getLastRow() > 5) return "Contatos: Dim_Escolas já possui dados. Pulando importação.";
-
     var data = sheetContacts.getDataRange().getValues();
     if (data.length < 2) return "Contatos: Aba de contatos vazia.";
 
+    // Mapeamento dinâmico de cabeçalhos Dim_Escolas
+    var hDim = sheetDim.getRange(1, 1, 1, sheetDim.getLastColumn()).getValues()[0];
+    var colInepDim = hDim.indexOf(AppConfig.COLUMNS_ESCOLAS.COD_INEP);
+
     var headers = data[0].map(function(h) { return String(h).trim().toUpperCase(); });
-    
     var colCidade = headers.indexOf("CIDADE");
     var colInep = headers.indexOf("CÓD. ESCOLA");
     var colEscola = headers.indexOf("ESCOLA");
     var colDiretor = headers.indexOf("DIRETOR");
     
-    // Procura e-mail institucional (pode ter espaços ou variações)
     var colEmail = -1;
     for(var i=0; i<headers.length; i++) {
       if(headers[i].indexOf("EMAIL INSTITUCIONAL") > -1) { colEmail = i; break; }
@@ -60,12 +62,22 @@ var MigrationService = {
     var colCelular = headers.indexOf("CELULAR/ WHATSAAP") > -1 ? headers.indexOf("CELULAR/ WHATSAAP") : headers.indexOf("CELULAR");
     var colWhatsapp = headers.indexOf("CELULAR/ WHATSAAP") > -1 ? headers.indexOf("CELULAR/ WHATSAAP") : -1;
 
+    // Cache de INEPs já existentes na Dim_Escolas
+    var inepsExistentes = {};
+    if (sheetDim.getLastRow() > 1) {
+      var dadosExistentes = sheetDim.getRange(2, colInepDim + 1, sheetDim.getLastRow() - 1, 1).getValues();
+      dadosExistentes.forEach(function(row) { inepsExistentes[String(row[0]).trim()] = true; });
+    }
+
     var totalImportado = 0;
-    var inepsProcessados = {};
+    var totalIgnorado = 0;
 
     for (var i = 1; i < data.length; i++) {
       var inep = String(data[i][colInep]).trim();
-      if (!inep || inepsProcessados[inep]) continue;
+      if (!inep || inepsExistentes[inep]) {
+        totalIgnorado++;
+        continue;
+      }
 
       var rowObj = {};
       rowObj[AppConfig.COLUMNS_ESCOLAS.COD_INEP] = inep;
@@ -77,11 +89,11 @@ var MigrationService = {
       rowObj[AppConfig.COLUMNS_ESCOLAS.WHATSAPP_DIRETOR] = colWhatsapp > -1 ? data[i][colWhatsapp] : "";
       
       BaseRepository.appendRowMapped(AppConfig.SHEET_NAMES.DIM_ESCOLAS, rowObj);
-      inepsProcessados[inep] = true;
+      inepsExistentes[inep] = true;
       totalImportado++;
     }
 
-    return "Contatos: " + totalImportado + " escolas importadas para a Dim_Escolas.";
+    return "Contatos: " + totalImportado + " novas escolas importadas. " + totalIgnorado + " já existiam.";
   },
 
   /**

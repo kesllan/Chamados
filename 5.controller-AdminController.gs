@@ -28,6 +28,15 @@ var AdminController = {
       return { success: false, message: e.toString() };
     }
   },
+  runFormSync: function() {
+    try {
+      var result = FormService.syncSchoolsFromForm();
+      return { success: true, message: result };
+    } catch (e) {
+      Logger.log("Erro AdminController.runFormSync: " + e.toString());
+      return { success: false, message: e.toString() };
+    }
+  },
   setupDatabase: function() {
     try {
       var ss = BaseRepository.getSpreadsheet();
@@ -101,6 +110,26 @@ var AdminController = {
         AppConfig.COLUMNS_FERIADOS.DATA, AppConfig.COLUMNS_FERIADOS.DESCRICAO
       ];
       SheetUtils.ensureColumns(sheetFeriados, colunasFeriados);
+
+      // 6.1 Garantir cabeçalhos nas abas de Setor existentes
+      var sheets = ss.getSheets();
+      var cabecalhoSetor = ["Município", "Escola (INEP - Nome)"];
+      sheets.forEach(function(s) {
+        if (s.getName().toLowerCase().indexOf("setor") > -1) {
+          if (s.getLastRow() === 0) {
+            s.appendRow(cabecalhoSetor);
+            s.getRange(1, 1, 1, 2).setBackground("#f3f3f3").setFontWeight("bold");
+            s.setFrozenRows(1);
+          } else {
+            var val = s.getRange(1, 1).getValue();
+            if (val !== "Município") {
+              s.insertRowBefore(1);
+              s.getRange(1, 1, 1, 2).setValues([cabecalhoSetor]).setBackground("#f3f3f3").setFontWeight("bold");
+              s.setFrozenRows(1);
+            }
+          }
+        }
+      });
 
       // 7. MIGRACÃO DE DADOS LEGADOS (Setores -> Dim_Escolas)
       var migracao = MigrationService.migrateAll();

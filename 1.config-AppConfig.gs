@@ -6,6 +6,7 @@
  */
 var AppConfig = {
   SPREADSHEET_ID: '', 
+  GOOGLE_FORM_ID: '1Lt5KmIrN238bcjrC42HsckAah_Suvffr3IXChTii8wY',
 
   SHEET_NAMES: {
     CHAMADOS: 'Chamados',
@@ -14,6 +15,12 @@ var AppConfig = {
     DIM_ESCOLAS: 'Dim_Escolas',
     LOG_STATUS: 'BD_Historico_Status',
     CONTATOS_DIRETORES: 'Contatos Diretores'
+  },
+
+  FORM_FIELDS: {
+    ESCOLA: 'Nome da Escola:',
+    CARGO: 'Cargo do Solicitante',
+    TIPO_SOLICITACAO: 'Qual o tipo de solicitação?'
   },
   
   // Aba: Config_Tecnicos

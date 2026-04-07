@@ -154,6 +154,15 @@ var TicketRepository = {
     ticket.tipoAtendimento = getVal(self.COLUMNS.TIPO_ATENDIMENTO);
     ticket.setor = getVal(self.COLUMNS.SETOR_ID);
 
+    // Extrai o ano para filtragem (Prioriza data real, fallback para o protocolo se necessário)
+    var anoTicket = "";
+    if (rawDataAbertura instanceof Date) {
+      anoTicket = rawDataAbertura.getFullYear().toString();
+    } else if (ticket.protocolo && String(ticket.protocolo).length >= 4) {
+      anoTicket = String(ticket.protocolo).substring(0, 4);
+    }
+    ticket.ano = anoTicket;
+
     // Formate as datas para string explicitamente, como no código antigo
     ticket.dataAbertura = (rawDataAbertura instanceof Date) ? DateUtils.format(rawDataAbertura) : (rawDataAbertura || "");
     ticket.ultimaAtualizacao = (rawUltimaAtualizacao instanceof Date) ? DateUtils.format(rawUltimaAtualizacao) : (rawUltimaAtualizacao || "");

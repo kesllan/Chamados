@@ -10,12 +10,16 @@
   var itensPorPagina = 9; 
   var totalPaginas = 1;
   var filtroAtual = 'abertos';
+  var anoFiltro = new Date().getFullYear().toString();
 
   // ==========================================
   // INICIALIZAÇÃO
   // ==========================================
   document.addEventListener('DOMContentLoaded', function() {
     console.log("Inicializando Aplicação...");
+    
+    // Inicializa seletor de ano
+    popularSeletorAno();
     
     if (typeof google.script.run.getDadosDashboard !== 'function') {
       console.error("ERRO CRÍTICO: getDadosDashboard não foi detectada como função!");
@@ -28,9 +32,32 @@
     }
   });
 
+  function popularSeletorAno() {
+    var select = document.getElementById('select-ano');
+    if (!select) return;
+    
+    var anoAtual = new Date().getFullYear();
+    var html = '';
+    // Oferece o ano atual e os 2 anteriores
+    for (var i = 0; i < 3; i++) {
+      var ano = (anoAtual - i).toString();
+      html += '<option value="' + ano + '"' + (ano === anoFiltro ? ' selected' : '') + '>' + ano + '</option>';
+    }
+    select.innerHTML = html;
+  }
+
+  function mudarAno(ano) {
+    anoFiltro = ano;
+    console.log("Filtrando por ano:", anoFiltro);
+    renderDashboardLocal();
+  }
+
   function inicializarDados() {
     document.getElementById('loading-spinner').style.display = 'flex';
     document.getElementById('chamados-container').style.display = 'none';
+    
+    // Carrega lista de técnicos para uso no sistema (ex: auxiliares)
+    carregarTecnicos();
     
     // Buscamos TODOS os chamados (limite alto) sem filtro para cache local
     google.script.run
@@ -136,6 +163,43 @@
     return isMyTicket || isMySectorTicket;
   }
 
+  function atualizarContadoresStatus() {
+    if (!todosOsChamados || todosOsChamados.length === 0) return;
+
+    var counts = {
+      'all': 0,
+      'abertos': 0,
+      'Novo': 0,
+      'Agendado': 0,
+      'Pendente': 0,
+      'Concluido': 0,
+      'Cancelado': 0,
+      'Atrasado': 0
+    };
+
+    var statusAbertos = ['Novo', 'Agendado', 'Pendente', 'Atrasado'];
+
+    todosOsChamados.forEach(function(t) {
+      if (!isTicketVisible(t)) return;
+      counts['all']++;
+      var status = String(t.status || '').trim();
+      var isFinalizado = (status === 'Concluído' || status === 'Cancelado');
+      var slaEstourado = (t.slaEstourado === true || String(t.slaEstourado).toUpperCase() === 'TRUE');
+      if (!isFinalizado && (status === 'Atrasado' || slaEstourado)) counts['Atrasado']++;
+      if (status === 'Novo') counts['Novo']++;
+      else if (status === 'Agendado') counts['Agendado']++;
+      else if (status === 'Pendente') counts['Pendente']++;
+      else if (status === 'Concluído') counts['Concluido']++;
+      else if (status === 'Cancelado') counts['Cancelado']++;
+      if (statusAbertos.indexOf(status) > -1) counts['abertos']++;
+    });
+
+    Object.keys(counts).forEach(function(key) {
+      var el = document.getElementById('count-' + key);
+      if (el) el.textContent = counts[key];
+    });
+  }
+
   function renderDashboardLocal() {
     document.getElementById('loading-spinner').style.display = 'none';
     var container = document.getElementById('chamados-container');
@@ -150,21 +214,18 @@
     var filtrados = todosOsChamados.filter(function(t) {
       // REGRA DE OURO: Só processa se for visível para o usuário (Setor/Técnico)
       if (!isTicketVisible(t)) return false;
-
       var ticketStatus = String(t.status || '').trim();
       var isFinalizado = (ticketStatus === 'Concluído' || ticketStatus === 'Cancelado');
       var isAberto = !isFinalizado;
       var slaEstourado = (t.slaEstourado === true || String(t.slaEstourado).toUpperCase() === 'TRUE');
       var isAtrasado = isAberto && (ticketStatus === 'Atrasado' || slaEstourado);
-      
-      if (filtroAtual === 'all') return true;
-      
-      // Definição 1: Chamados Abertos (Tudo exceto finalizados)
+      var isDoAnoSelecionado = (String(t.ano) === String(anoFiltro));
+      if (isFinalizado && !isDoAnoSelecionado) return false;
+      if (filtroAtual === 'all') return true;// Definição 1: Chamados Abertos (Tudo exceto finalizados)
       if (filtroAtual === 'abertos') return isAberto;
       
       // Definição 2: Atrasados (Status Atrasado OU SLA estourado, desde que aberto)
       if (filtroAtual === 'Atrasado') return isAtrasado;
-
       return ticketStatus === filtroAtual;
     });
 
@@ -175,19 +236,15 @@
       var timeB = b.timestamp || 0;
       var schedA = a.scheduledTimestamp || 0;
       var schedB = b.scheduledTimestamp || 0;
-
       // FILTROS DE OPERAÇÃO (Fila de Trabalho): Devem priorizar o que está esperando há mais tempo
       var filtrosDeFila = ['abertos', 'Atrasado', 'Pendente', 'Novo', 'Agendado'];
-      
       if (filtrosDeFila.indexOf(filtroAtual) > -1) {
         var statusA = String(a.status || '').trim();
         var statusB = String(b.status || '').trim();
-        
         // Camada 1: Pesos de Prioridade por Status Nominal (Agrupamento em Blocos)
         var pesos = { 'Atrasado': 10, 'Pendente': 20, 'Agendado': 30, 'Novo': 40 };
         var pesoA = pesos[statusA] || 999;
         var pesoB = pesos[statusB] || 999;
-
         // Se os grupos de status forem diferentes, o grupo de maior prioridade sobe
         if (pesoA !== pesoB) return pesoA - pesoB;
 
@@ -235,7 +292,6 @@
       // Lógica de SLA e Ícone: Ignora SLA se finalizado
       var isFinalizado = (status === "Concluído" || status === "Cancelado");
       var slaReal = (!isFinalizado && (status === "Atrasado" || c.slaEstourado === true || String(c.slaEstourado).toUpperCase() === 'TRUE'));
-
       var icon = "help_outline";
       if (status === "Novo") icon = "fiber_new";
       else if (status === "Agendado") icon = "event";
@@ -243,10 +299,8 @@
       else if (status === "Concluído") icon = "check_circle";
       else if (status === "Cancelado") icon = "cancel";
       if (slaReal) icon = "warning";
-
       var slaHtml = slaReal ? '<span class="badge-sla">SLA ESTOURADO</span>' : '';
       var termoHtml = hasTermo ? '<i class="material-icons text-danger ml-2" style="font-size:18px;" title="Termo de Visita Gerado">picture_as_pdf</i>' : '';
-
       var html = '<div class="col-12 col-md-6 col-lg-4 mb-4 item-chamado" data-status="' + status + '" data-protocolo="' + protocolo + '">' + 
           '<div class="card-chamado h-100 status-' + status + '" onclick="abrirDetalhes(\'' + protocolo + '\')">' + 
             '<div class="p-3">' + 
@@ -274,7 +328,6 @@
         '</div>';
       container.insertAdjacentHTML('beforeend', html);
     });
-
     renderizarPaginacao();
   }
 
@@ -282,7 +335,6 @@
     var container = document.getElementById('paginacao-container');
     if (!container) return;
     if (totalPaginas <= 1) { container.innerHTML = ''; return; }
-
     var html = '<div class="btn-group shadow-sm border rounded-pill overflow-hidden bg-white" role="group">';
     var prevDisabled = (paginaAtual <= 1) ? 'disabled' : '';
     html += '<button type="button" class="btn btn-light ' + prevDisabled + '" onclick="mudarPagina(' + (paginaAtual - 1) + ')">' + 
@@ -307,7 +359,6 @@
     var chips = document.querySelectorAll('.filter-chip');
     for (var i = 0; i < chips.length; i++) chips[i].classList.remove('active');
     if (btn) btn.classList.add('active');
-
     if (filtro !== filtroAtual) {
        filtroAtual = filtro;
        paginaAtual = 1;
@@ -338,7 +389,6 @@
     document.getElementById('detalhe-cargo').textContent = chamadoAtual.cargo || "-";
     document.getElementById('detalhe-celular').textContent = chamadoAtual.celular || "-";
     document.getElementById('detalhe-obs').innerHTML = chamadoAtual.obs ? chamadoAtual.obs.replace(/\n/g, '<br>') : "<em>Nenhuma observação registrada.</em>";
-
     var dias = calcularDias(chamadoAtual.timestamp);
     var elDias = document.getElementById('detalhe-dias');
     if (chamadoAtual.status === 'Concluído' || chamadoAtual.status === 'Cancelado') {
@@ -348,14 +398,12 @@
        elDias.textContent = dias + " DIAS EM ABERTO";
        elDias.className = dias > 7 ? "badge badge-danger p-2" : "badge badge-success p-2";
     }
-
     document.getElementById('detalhe-texto').innerHTML = chamadoAtual.detalhe ? chamadoAtual.detalhe.replace(/\n/g, '<br>') : "Sem descrição.";
     renderizarAnexos(chamadoAtual.anexos);
 
     // 1. WhatsApp Escola (Diretor ou Fallback)
     var foneEscola = chamadoAtual.contatoDiretor ? chamadoAtual.contatoDiretor.toString().replace(/\D/g, '') : '';
-    if (!foneEscola && chamadoAtual.celular) foneEscola = chamadoAtual.celular.toString().replace(/\D/g, ''); // Fallback
-    
+    if (!foneEscola && chamadoAtual.celular) foneEscola = chamadoAtual.celular.toString().replace(/\D/g, '');
     var btnZap = document.getElementById('btn-whatsapp');
     if (foneEscola) { 
       btnZap.href = "https://wa.me/55" + foneEscola; 
@@ -384,7 +432,6 @@
     } else {
       btnZapSol.classList.add('d-none');
     }
-
     configurarPainelStatus();
     $('#detalhesModal').modal('show');
   }
@@ -394,12 +441,10 @@
     var btnEmitir = document.getElementById('btn-emitir-termo');
     var btnVerTermo = document.getElementById('btn-ver-termo');
     var avisoLock = document.getElementById('aviso-lock');
-
     formStatus.classList.remove('d-none');
     btnEmitir.classList.add('d-none');
     btnVerTermo.classList.add('d-none');
     avisoLock.classList.add('d-none');
-
     var btns = document.querySelectorAll('.btn-status');
     for(var k=0; k<btns.length; k++) {
       btns[k].classList.remove('active', 'btn-primary', 'btn-warning', 'btn-success', 'btn-danger');
@@ -407,7 +452,6 @@
     }
     document.getElementById('input-status-selecionado').value = "";
     toggleCamposStatus(); 
-
     if (chamadoAtual.status === 'Concluído' || chamadoAtual.status === 'Cancelado') {
       formStatus.classList.add('d-none');
       avisoLock.classList.remove('d-none');
@@ -421,7 +465,6 @@
           '<label class="small font-weight-bold text-uppercase text-muted d-block mb-1">Solução Técnica Registrada:</label>' +
           '<div style="font-size:13px; color:#444; line-height:1.4;">' + chamadoAtual.solucao.replace(/\n/g, '<br>') + '</div>' +
         '</div>' : '';
-
       if (chamadoAtual.linkTermo) {
         btnVerTermo.classList.remove('d-none');
         btnVerTermo.innerHTML = 
@@ -489,7 +532,6 @@
     document.getElementById('campo-pendente').classList.add('d-none');
     document.getElementById('campo-cancelado').classList.add('d-none');
     document.getElementById('campo-conclusao').classList.add('d-none');
-
     if (s === 'Agendado') document.getElementById('campo-agendamento').classList.remove('d-none');
     else if (s === 'Pendente') document.getElementById('campo-pendente').classList.remove('d-none');
     else if (s === 'Cancelado') document.getElementById('campo-cancelado').classList.remove('d-none');
@@ -500,24 +542,18 @@
     if (!chamadoAtual) return;
     var status = document.getElementById('input-status-selecionado').value;
     if (!status) { showMsg("Atenção", "Selecione um status.", "warning"); return; }
-    
     var justificativa = "";
     var categorias = [];
     var causas = [];
-
-    if (status === 'Pendente') {
-      justificativa = document.getElementById('input-justificativa-pendente').value;
-    } else if (status === 'Cancelado') {
-      justificativa = document.getElementById('input-justificativa-cancelado').value;
-    } else if (status === 'Agendado') {
-      justificativa = document.getElementById('input-agendar-obs').value;
-    } else if (status === 'Concluído') {
+    if (status === 'Pendente') justificativa = document.getElementById('input-justificativa-pendente').value;
+    else if (status === 'Cancelado') justificativa = document.getElementById('input-justificativa-cancelado').value;
+    else if (status === 'Agendado') justificativa = document.getElementById('input-agendar-obs').value;
+    else if (status === 'Concluído') {
       // Coleta Checkboxes de Categorias
       document.querySelectorAll('.chk-conclusao-cat:checked').forEach(function(el) { categorias.push(el.value); });
       // Coleta Checkboxes de Causas
       document.querySelectorAll('.chk-conclusao-causa:checked').forEach(function(el) { causas.push(el.value); });
     }
-
     var payload = {
       protocolo: chamadoAtual.protocolo, 
       novoStatus: status,
@@ -528,14 +564,12 @@
       tipoAtendimento: document.getElementById('input-tipo-atendimento').value,
       justificativa: justificativa
     };
-
     if (status === 'Agendado' && !payload.dataAgendamento) return showMsg("Erro", "Informe a data.", "error");
     if (status === 'Concluído') {
       if (!payload.solucao || categorias.length === 0 || causas.length === 0 || !payload.tipoAtendimento) {
         return showMsg("Erro", "Preencha solução, categorias, causas e tipo de atendimento.", "error");
       }
     }
-
     Swal.fire({ title: 'Salvando...', allowOutsideClick: false, didOpen: function() { Swal.showLoading() } });
     google.script.run
       .withSuccessHandler(function(resp) {
@@ -563,9 +597,15 @@
   }
 
   function emitirTermoVisita() {
-    var opcoesTecnicos = listaTecnicos.map(function(t) {
+    var emailTecnicoPrincipal = String(chamadoAtual.tecnico || '').toLowerCase().trim();
+    var opcoesTecnicos = listaTecnicos.filter(function(t) {
+      return String(t.email).toLowerCase().trim() !== emailTecnicoPrincipal;
+    }).map(function(t) {
       return '<option value="' + t.email + '">' + t.nome + (t.masp ? " (" + t.masp + ")" : "") + '</option>';
     }).join('');
+
+    var diretorCadastrado = chamadoAtual.diretorNome || "Diretor não identificado";
+    var solicitante = chamadoAtual.solicitante || "";
 
     Swal.fire({
       title: 'GERAR TERMO DE VISITA',
@@ -578,7 +618,12 @@
               '<select id="sw-aux" class="form-control mb-3" multiple style="height: 100px;">' + opcoesTecnicos + '</select>' +
               '<small class="text-muted d-block mb-3" style="font-size: 10px; margin-top: -10px;">Segure Ctrl para selecionar vários.</small>' +
               '<label class="small font-weight-bold">ASSINANTE (ESCOLA)</label>' +
-              '<input id="sw-ass" class="form-control" placeholder="Nome (Opcional)...">' +
+              '<select id="sw-ass-select" class="form-control mb-2" onchange="toggleAssinanteOutro(this.value)">' +
+                (solicitante ? '<option value="' + solicitante + '">Solicitante: ' + solicitante + '</option>' : '') +
+                '<option value="' + diretorCadastrado + '">Diretor(a): ' + diretorCadastrado + '</option>' +
+                '<option value="OUTRO">Outro (Digitar nome...)</option>' +
+              '</select>' +
+              '<input id="sw-ass-manual" class="form-control d-none" placeholder="Digite o nome do assinante...">' +
             '</div>',
       confirmButtonText: 'GERAR PDF', 
       showCancelButton: true,
@@ -588,16 +633,18 @@
       preConfirm: function() { 
         var selectAux = document.getElementById('sw-aux');
         var auxSelecionados = Array.from(selectAux.selectedOptions).map(option => option.value);
-        
+        var assSelect = document.getElementById('sw-ass-select').value;
+        var assinanteFinal = (assSelect === 'OUTRO') ? document.getElementById('sw-ass-manual').value : assSelect;
         return { 
           ini: document.getElementById('sw-ini').value, 
           fim: document.getElementById('sw-fim').value, 
           tecnicosAuxiliares: auxSelecionados, 
-          ass: document.getElementById('sw-ass').value 
+          ass: assinanteFinal 
         } 
       }
     }).then(function(res) {
       if (res.isConfirmed) {
+        if (!res.value.ass) { showMsg("Atenção", "Informe o nome do assinante.", "warning"); return; }
         Swal.fire({ title: 'Gerando PDF...', allowOutsideClick: false, didOpen: function() { Swal.showLoading() } });
         google.script.run
           .withSuccessHandler(function(resp) {
@@ -605,7 +652,7 @@
               Swal.fire({ icon: 'success', title: 'Sucesso!', text: 'Termo gerado!', confirmButtonText: 'ABRIR PDF' }).then(function() { 
                 window.open(resp.urlPdf, '_blank'); 
                 $('#detalhesModal').modal('hide'); 
-                refreshDados(); // Recarrega cache local
+                refreshDados(); 
               }); 
             }
             else showMsg("Erro", resp.message, "error");
@@ -622,9 +669,19 @@
     });
   }
 
+  function toggleAssinanteOutro(val) {
+    var inputManual = document.getElementById('sw-ass-manual');
+    if (val === 'OUTRO') {
+      inputManual.classList.remove('d-none');
+      //inputManual.value = chamadoAtual.solicitante || ""; // Preenche com solicitante por padrão
+      inputManual.focus();
+    } else {
+      inputManual.classList.add('d-none');
+    }
+  }
+
   function excluirTermo() {
     if (!chamadoAtual || !chamadoAtual.protocolo) return;
-
     Swal.fire({
       title: 'Excluir Termo?',
       text: "O link do PDF será removido e você poderá gerar um novo. O arquivo no Drive também será excluído.",
@@ -637,7 +694,6 @@
     }).then(function(result) {
       if (result.isConfirmed) {
         Swal.fire({ title: 'Excluindo termo...', allowOutsideClick: false, didOpen: function() { Swal.showLoading() } });
-        
         google.script.run
           .withSuccessHandler(function(resp) {
             if (resp.success) {
@@ -669,7 +725,7 @@
   function liberarEdicaoConcluido() { document.getElementById('form-status').classList.remove('d-none'); document.getElementById('aviso-lock').classList.add('d-none'); selecionarStatus(document.getElementById('btn-status-concluido')); document.getElementById('input-solucao').value = chamadoAtual.solucao || ""; }
   function showMsg(t, m, i) { Swal.fire({ title: t, text: m, icon: i || 'info', confirmButtonColor: '#007bff' }); }
   function showError(err) { 
-    console.log("Failure handler triggered with error:", err); // Added console.log here
+    console.log("Failure handler triggered with error:", err);
     document.getElementById('loading-spinner').style.display = 'none'; 
     showMsg("Erro Crítico", "Erro: " + (err.message || err), "error"); 
   }
@@ -679,23 +735,19 @@
   // ==========================================
   var listaEscolasCompleta = [];
   var mapaTecnicosSetor = {};
-  var modoSelecaoEscola = false; // Flag para controlar o comportamento da modal
+  var modoSelecaoEscola = false; 
 
   function abrirGestaoEscolas(selecaoMode) {
     modoSelecaoEscola = !!selecaoMode;
     
     // Se for modo seleção, esconde o modal de chamado temporariamente (se estiver aberto)
-    if (modoSelecaoEscola) {
-       $('#chamadoTecnicoModal').modal('hide');
-    }
-
+    if (modoSelecaoEscola) $('#chamadoTecnicoModal').modal('hide');
     Swal.fire({ title: 'Carregando escolas...', allowOutsideClick: false, didOpen: function() { Swal.showLoading() } });
     google.script.run
       .withSuccessHandler(function(res) {
         Swal.close();
         listaEscolasCompleta = res.escolas;
         mapaTecnicosSetor = res.mapaTecnicos;
-        
         popularFiltrosEscolas(res.escolas);
         renderizarTabelaEscolas(res.escolas);
         $('#escolasModal').modal('show');
@@ -710,20 +762,14 @@
     // Pega valores únicos e ordena (ES5)
     var municipiosSet = {};
     var setoresSet = {};
-    
     escolas.forEach(function(e) {
       if (e.Municipio) municipiosSet[e.Municipio] = true;
       if (e.Setor_Regiao) setoresSet[e.Setor_Regiao] = true;
     });
-
     var municipios = Object.keys(municipiosSet).sort();
     var setores = Object.keys(setoresSet).sort(function(a, b) { return a - b; });
-
     selMun.innerHTML = '<option value="">Todos os Municípios</option>';
-    municipios.forEach(function(m) { 
-      selMun.insertAdjacentHTML('beforeend', '<option value="'+m+'">'+m+'</option>');
-    });
-
+    municipios.forEach(function(m) { selMun.insertAdjacentHTML('beforeend', '<option value="'+m+'">'+m+'</option>'); });
     selSet.innerHTML = '<option value="">Todos Setores</option>';
     setores.forEach(function(s) {
       var nomeTec = mapaTecnicosSetor[s] || mapaTecnicosSetor["Todos"] || "";
@@ -742,14 +788,12 @@
       var munB = (b.Municipio || "").toLowerCase();
       if (munA < munB) return -1;
       if (munA > munB) return 1;
-      
       var nomeA = (a.Nome_Escola || a.Nome_Escola_Padrao || "").toLowerCase();
       var nomeB = (b.Nome_Escola || b.Nome_Escola_Padrao || "").toLowerCase();
       if (nomeA < nomeB) return -1;
       if (nomeA > nomeB) return 1;
       return 0;
     });
-
     escolasOrdenadas.forEach(function(esc) {
       // Mapeamento Flexível para diferentes versões de cabeçalhos
       var nome = esc.Nome_Escola || esc.Nome_Escola_Padrao || 'Sem Nome';
@@ -762,18 +806,15 @@
       // Escaping for JS strings in onclick
       var nomeEscolaEscaped = nome.replace(/'/g, "\\'");
       var munEscaped = mun.replace(/'/g, "\\'");
-
       var botoesAcao = '';
       if (modoSelecaoEscola) {
         botoesAcao = '<button class="btn btn-sm btn-success font-weight-bold" onclick="selecionarEscolaParaChamado(\'' + esc.Cod_INEP + '\', \'' + nomeEscolaEscaped + '\', \'' + munEscaped + '\', \'' + s + '\')">SELECIONAR</button>';
       } else {
         var btnDel = appUserInfo.isAdmin ? '<button class="btn btn-sm btn-outline-danger" onclick="excluirEscola(\'' + esc.Cod_INEP + '\')"><i class="material-icons" style="font-size:16px">delete</i></button>' : '';
-        
         botoesAcao = '<button class="btn btn-sm btn-outline-dark mr-1" title="Abrir Chamado" onclick="abrirNovoChamadoTecnico(\'' + esc.Cod_INEP + '\', \'' + nomeEscolaEscaped + '\', \'' + munEscaped + '\', \'' + s + '\')"><i class="material-icons" style="font-size:16px">add_task</i></button>' +
                      '<button class="btn btn-sm btn-outline-primary mr-1" onclick="editarEscola(\'' + esc.Cod_INEP + '\')"><i class="material-icons" style="font-size:16px">edit</i></button>' +
                      btnDel;
       }
-
       var html = '<tr>' +
         '<td class="p-3 font-weight-bold text-muted" style="font-size:13px">' + esc.Cod_INEP + '</td>' +
         '<td class="p-3 font-weight-bold" style="font-size:14px">' + nome + '</td>' +
@@ -792,25 +833,21 @@
     document.getElementById('tec-esc-municipio').value = municipio;
     document.getElementById('tec-esc-setor').value = setor;
     document.getElementById('tec-esc-label').textContent = inep + " - " + nome;
-    
     $('#escolasModal').modal('hide');
     $('#chamadoTecnicoModal').modal('show');
-    modoSelecaoEscola = false; // Reset
+    modoSelecaoEscola = false; 
   }
 
   function filtrarTabelaEscolas() {
     var termo = document.getElementById('busca-escola').value.toLowerCase();
     var mun = document.getElementById('filtro-escola-municipio').value;
     var set = document.getElementById('filtro-escola-setor').value;
-
     var filtradas = listaEscolasCompleta.filter(function(e) {
       var nome = (e.Nome_Escola || e.Nome_Escola_Padrao || '').toLowerCase();
       var inep = String(e.Cod_INEP).toLowerCase();
-      
       var matchBusca = inep.includes(termo) || nome.includes(termo);
       var matchMun = mun === "" || e.Municipio === mun;
       var matchSet = set === "" || String(e.Setor_Regiao) === String(set);
-
       return matchBusca && matchMun && matchSet;
     });
     renderizarTabelaEscolas(filtradas);
@@ -826,7 +863,6 @@
   function editarEscola(inep) {
     var esc = listaEscolasCompleta.find(function(e) { return String(e.Cod_INEP) === String(inep); });
     if (!esc) return;
-    
     document.getElementById('esc-inep').value = esc.Cod_INEP;
     document.getElementById('esc-inep').readOnly = true;
     document.getElementById('esc-nome').value = esc.Nome_Escola || esc.Nome_Escola_Padrao || "";
@@ -837,7 +873,6 @@
     document.getElementById('esc-endereco').value = esc.Endereco || esc.Endereco_Completo || "";
     document.getElementById('esc-lat').value = esc.Latitude || esc.Geo_Latitude || "";
     document.getElementById('esc-long').value = esc.Longitude || esc.Geo_Longitude || "";
-    
     document.getElementById('titulo-form-escola').textContent = "EDITAR ESCOLA";
     $('#escolaFormModal').modal('show');
   }
@@ -845,10 +880,7 @@
   function salvarDadosEscola() {
     // Detecta qual padrão de cabeçalho usar baseado na lista carregada
     var headersOriginais = listaEscolasCompleta.length > 0 ? Object.keys(listaEscolasCompleta[0]) : [];
-    
-    var dados = {
-      Cod_INEP: document.getElementById('esc-inep').value
-    };
+    var dados = { Cod_INEP: document.getElementById('esc-inep').value };
 
     // Função auxiliar para setar o campo no header correto se existir
     function setCampo(pref, inputId) {
@@ -864,59 +896,36 @@
     // Mapeamento específico para garantir que salve nos nomes corretos do CSV
     if (headersOriginais.indexOf('Nome_Escola_Padrao') > -1) dados.Nome_Escola_Padrao = document.getElementById('esc-nome').value;
     else dados.Nome_Escola = document.getElementById('esc-nome').value;
-
     dados.Municipio = document.getElementById('esc-municipio').value;
     dados.Setor_Regiao = document.getElementById('esc-setor').value;
-
     if (headersOriginais.indexOf('Email_Institucional') > -1) dados.Email_Institucional = document.getElementById('esc-email').value;
     else dados.Email_Diretor = document.getElementById('esc-email').value;
-
     if (headersOriginais.indexOf('Celular_Diretor') > -1) dados.Celular_Diretor = document.getElementById('esc-fone').value;
     if (headersOriginais.indexOf('Whatsapp_Diretor') > -1) dados.Whatsapp_Diretor = document.getElementById('esc-fone').value;
     if (headersOriginais.indexOf('Celular_Diretor') === -1 && headersOriginais.indexOf('Whatsapp_Diretor') === -1) dados.Celular_Diretor = document.getElementById('esc-fone').value;
-
     if (headersOriginais.indexOf('Endereco_Completo') > -1) dados.Endereco_Completo = document.getElementById('esc-endereco').value;
     else dados.Endereco = document.getElementById('esc-endereco').value;
-
     if (headersOriginais.indexOf('Geo_Latitude') > -1) dados.Geo_Latitude = document.getElementById('esc-lat').value;
     else dados.Latitude = document.getElementById('esc-lat').value;
-
     if (headersOriginais.indexOf('Geo_Longitude') > -1) dados.Geo_Longitude = document.getElementById('esc-long').value;
     else dados.Longitude = document.getElementById('esc-long').value;
-    
     Swal.fire({ title: 'Salvando...', allowOutsideClick: false, didOpen: function() { Swal.showLoading() } });
     google.script.run
       .withSuccessHandler(function(resp) {
-        if (resp.success) {
-          Swal.fire('Sucesso!', resp.message, 'success');
-          $('#escolaFormModal').modal('hide');
-          abrirGestaoEscolas(); 
-        } else {
-          showMsg("Erro", resp.message, "error");
-        }
+        if (resp.success) { Swal.fire('Sucesso!', resp.message, 'success'); $('#escolaFormModal').modal('hide'); abrirGestaoEscolas(); }
+        else showMsg("Erro", resp.message, "error");
       })
       .salvarEscola(dados);
   }
 
   function excluirEscola(inep) {
-    Swal.fire({
-      title: 'Tem certeza?',
-      text: "Esta ação não pode ser desfeita!",
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#dc3545',
-      confirmButtonText: 'SIM, EXCLUIR'
-    }).then(function(result) {
+    Swal.fire({ title: 'Tem certeza?', text: "Esta ação não pode ser desfeita!", icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545', confirmButtonText: 'SIM, EXCLUIR' }).then(function(result) {
       if (result.isConfirmed) {
         Swal.fire({ title: 'Excluido...', allowOutsideClick: false, didOpen: function() { Swal.showLoading() } });
         google.script.run
           .withSuccessHandler(function(resp) {
-            if (resp.success) {
-              Swal.fire('Removida!', 'A escola foi excluída.', 'success');
-              abrirGestaoEscolas();
-            } else {
-              showMsg("Erro", resp.message, "error");
-            }
+            if (resp.success) { Swal.fire('Removida!', 'A escola foi excluída.', 'success'); abrirGestaoEscolas(); }
+            else showMsg("Erro", resp.message, "error");
           })
           .excluirEscola(inep);
       }
@@ -942,20 +951,13 @@
   function renderizarDashboardSetores(dados) {
     var container = document.getElementById('container-setores-cards');
     container.innerHTML = '';
-    
     var labelsSetores = [];
     var countsEscolas = [];
     var coresSetores = [];
     var totalGeral = 0;
     var totalTO = 0;
-
     var sIds = Object.keys(dados).sort();
-    
-    // Paleta de cores para o gráfico combinando com o CSS
-    var paleta = {
-      "1": "#3b82f6", "2": "#10b981", "3": "#f59e0b", "4": "#ef4444", "5": "#8b5cf6", "S/S": "#64748b"
-    };
-
+    var paleta = { "1": "#3b82f6", "2": "#10b981", "3": "#f59e0b", "4": "#ef4444", "5": "#8b5cf6", "S/S": "#64748b" };
     for (var i = 0; i < sIds.length; i++) {
       var sId = sIds[i];
       var setor = dados[sId];
@@ -963,13 +965,7 @@
       var munHtml = "";
 
       // Função de normalização robusta para contar Teófilo Otoni corretamente
-      function normalizar(t) { 
-        return String(t || "").toUpperCase()
-          .replace(/[ÁÀÂÃ]/g, "A").replace(/[ÉÈÊ]/g, "E").replace(/[ÍÌÎ]/g, "I")
-          .replace(/[ÓÒÔÕ]/g, "O").replace(/[ÚÙÛ]/g, "U").replace(/[Ç]/g, "C")
-          .trim(); 
-      }
-
+      function normalizar(t) { return String(t || "").toUpperCase().replace(/[ÁÀÂÃ]/g, "A").replace(/[ÉÈÊ]/g, "E").replace(/[ÍÌÎ]/g, "I").replace(/[ÓÒÔÕ]/g, "O").replace(/[ÚÙÛ]/g, "U").replace(/[Ç]/g, "C").trim(); }
       // Ordenar Municípios
       var munKeys = Object.keys(setor.municipios).sort(function(a, b) {
         var aSimp = normalizar(a);
@@ -979,71 +975,33 @@
         if (aSimp !== sede && bSimp === sede) return 1;
         return a.localeCompare(b);
       });
-
       for (var j = 0; j < munKeys.length; j++) {
         var mun = munKeys[j];
         var escolas = setor.municipios[mun];
         var count = escolas.length;
         totalSetor += count;
         totalGeral += count;
-        var isSede = normalizar(mun) === "TEOFILO OTONI";
-        if (isSede) totalTO += count;
-
-        // Botão remanejar para Município
-        var btnRemMun = (!isSede && appUserInfo.isAdmin) ? 
-          '<i class="material-icons btn-remanezar ml-2" style="font-size:16px" title="Mover Município" onclick="solicitarMoverMunicipio(\''+mun.replace(/'/g, "\\'")+'\', \''+sId+'\', event)">swap_horiz</i>' : '';
-
+        if (normalizar(mun) === "TEOFILO OTONI") totalTO += count;
+        var btnRemMun = (normalizar(mun) !== "TEOFILO OTONI" && appUserInfo.isAdmin) ? '<i class="material-icons btn-remanezar ml-2" style="font-size:16px" title="Mover Município" onclick="solicitarMoverMunicipio(\''+mun.replace(/'/g, "\\'")+'\', \''+sId+'\', event)">swap_horiz</i>' : '';
         munHtml += '<div class="municipio-pill w-100 mb-2" onclick="toggleMunEscolas(this, event)">' +
-          '<div class="d-flex justify-content-between align-items-center">' +
-            '<span><strong>' + mun + '</strong> ' + btnRemMun + '</span>' +
-            '<span class="badge badge-light">' + count + '</span>' +
-          '</div>' +
+          '<div class="d-flex justify-content-between align-items-center"><span><strong>' + mun + '</strong> ' + btnRemMun + '</span><span class="badge badge-light">' + count + '</span></div>' +
           '<div class="escolas-lista d-none mt-2 text-left">' +
             escolas.map(function(e) { 
               // Proteção contra aspas simples em nomes de escolas (ex: EE D'Abadia)
               var nomeEscolaEscaped = e.nome.replace(/'/g, "\\'");
               var munEscaped = mun.replace(/'/g, "\\'");
-              
-              var btnRemEsc = (isSede && appUserInfo.isAdmin) ? 
-                '<i class="material-icons btn-remanezar float-right" style="font-size:14px" onclick="solicitarMoverEscola(\''+e.inep+'\', \''+nomeEscolaEscaped+'\', \''+sId+'\', event)">swap_horiz</i>' : '';
-              
+              var btnRemEsc = (normalizar(mun) === "TEOFILO OTONI" && appUserInfo.isAdmin) ? '<i class="material-icons btn-remanezar float-right" style="font-size:14px" onclick="solicitarMoverEscola(\''+e.inep+'\', \''+nomeEscolaEscaped+'\', \''+sId+'\', event)">swap_horiz</i>' : '';
               var nomeEscolaLink = '<a href="#" class="font-weight-bold text-primary" onclick="abrirNovoChamadoTecnico(\''+e.inep+'\', \''+nomeEscolaEscaped+'\', \''+munEscaped+'\', \''+sId+'\', event)">' + e.nome + '</a>';
-              
               return '<div class="small py-1 border-top">• ' + nomeEscolaLink + ' <span class="text-muted">('+e.inep+')</span>' + btnRemEsc + '</div>';
             }).join('') +
-          '</div>' +
-        '</div>';
+          '</div></div>';
       }
-
       labelsSetores.push("Setor " + sId + " - " + setor.tecnico);
       countsEscolas.push(totalSetor);
       coresSetores.push(paleta[sId] || "#64748b");
-
-      // Layout Independente: col-xl coloca todos na mesma linha, sem h-100 cada um tem sua altura
-      var cardHtml = '<div class="col-xl col-lg-4 col-md-6 mb-4">' +
-        '<div class="sector-row sector-' + sId + '">' +
-          '<div class="sector-header d-flex flex-column align-items-start p-3" onclick="toggleSectorRow(this)">' +
-            '<div class="sector-info w-100 mb-2">' +
-              '<div class="sector-badge mb-2">' + sId + '</div>' +
-              '<div>' +
-                '<h5 class="mb-0 font-weight-bold text-dark">SETOR ' + sId + '</h5>' +
-                '<div class="text-primary font-weight-bold" style="font-size:12px">' + setor.tecnico + '</div>' +
-              '</div>' +
-            '</div>' +
-            '<div class="w-100 d-flex justify-content-between align-items-center">' +
-              '<span class="h5 font-weight-bold mb-0">' + totalSetor + ' <small class="text-muted">Escolas</small></span>' +
-              '<i class="material-icons align-middle text-muted">expand_more</i>' +
-            '</div>' +
-          '</div>' +
-          '<div class="escolas-container-modern d-none">' +
-            '<div class="p-2">' + munHtml + '</div>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
-      
+      var cardHtml = '<div class="col-xl col-lg-4 col-md-6 mb-4"><div class="sector-row sector-' + sId + '"><div class="sector-header d-flex flex-column align-items-start p-3" onclick="toggleSectorRow(this)"><div class="sector-info w-100 mb-2"><div class="sector-badge mb-2">' + sId + '</div><div><h5 class="mb-0 font-weight-bold text-dark">SETOR ' + sId + '</h5><div class="text-primary font-weight-bold" style="font-size:12px">' + setor.tecnico + '</div></div></div><div class="w-100 d-flex justify-content-between align-items-center"><span class="h5 font-weight-bold mb-0">' + totalSetor + ' <small class="text-muted">Escolas</small></span><i class="material-icons align-middle text-muted">expand_more</i></div></div><div class="escolas-container-modern d-none"><div class="p-2">' + munHtml + '</div></div></div></div>';
       container.insertAdjacentHTML('beforeend', cardHtml);
     }
-
     document.getElementById('total-escolas-dash').textContent = totalGeral;
     document.getElementById('count-to').textContent = totalTO;
 
@@ -1056,91 +1014,38 @@
       if (chartSetoresInstancia) chartSetoresInstancia.destroy();
       chartSetoresInstancia = new Chart(ctx, {
         type: 'bar',
-        data: {
-          labels: labelsSetores,
-          datasets: [{
-            label: 'Escolas',
-            data: countsEscolas,
-            backgroundColor: coresSetores,
-            borderRadius: 10
-          }]
-        },
-        options: {
-          indexAxis: 'y',
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { 
-            legend: { display: false },
-            tooltip: { bodyFont: { size: 16 } }
-          },
-          scales: { 
-            y: { 
-              ticks: { 
-                font: { weight: 'bold', size: 16 }, // Aumentado de 11 para 16
-                color: '#333'
-              }, 
-              grid: { display: false } 
-            },
-            x: { beginAtZero: true, grid: { color: '#f0f0f0' } }
-          }
-        }
+        data: { labels: labelsSetores, datasets: [{ label: 'Escolas', data: countsEscolas, backgroundColor: coresSetores, borderRadius: 10 }] },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { bodyFont: { size: 16 } } }, scales: { y: { ticks: { font: { weight: 'bold', size: 16 }, color: '#333' }, grid: { display: false } }, x: { beginAtZero: true, grid: { color: '#f0f0f0' } } } }
       });
         }, 500);
       }
     
       function solicitarMoverEscola(inep, nome, setorAtual, event) {
         event.stopPropagation();
-        Swal.fire({
-          title: 'Remanejar Escola',
-          html: 'Mover <b>' + nome + '</b> para qual setor?',
-          input: 'select',
-          inputOptions: { '1': 'Setor 1', '2': 'Setor 2', '3': 'Setor 3', '4': 'Setor 4', '5': 'Setor 5' },
-          inputValue: setorAtual,
-          showCancelButton: true,
-          confirmButtonText: 'REMANEJAR',
-          cancelButtonText: 'CANCELAR'
-        }).then(function(res) {
+    Swal.fire({ title: 'Remanejar Escola', html: 'Mover <b>' + nome + '</b> para qual setor?', input: 'select', inputOptions: { '1': 'Setor 1', '2': 'Setor 2', '3': 'Setor 3', '4': 'Setor 4', '5': 'Setor 5' }, inputValue: setorAtual, showCancelButton: true, confirmButtonText: 'REMANEJAR', cancelButtonText: 'CANCELAR' }).then(function(res) {
           if (res.isConfirmed && res.value !== setorAtual) {
-            Swal.fire({ title: 'Excluido...', allowOutsideClick: false, didOpen: function() { Swal.showLoading() } });
-            google.script.run.withSuccessHandler(function() {
-              Swal.fire('Sucesso!', 'Escola remanejada.', 'success');
-              abrirGestaoSetores(); // Recarrega dashboard
-            }).remanezarEscola(inep, res.value);
+        Swal.fire({ title: 'Remanejando...', allowOutsideClick: false, didOpen: function() { Swal.showLoading() } });
+        google.script.run.withSuccessHandler(function() { Swal.fire('Sucesso!', 'Escola remanejada.', 'success'); abrirGestaoSetores(); }).remanezarEscola(inep, res.value);
           }
         });
       }
     
       function solicitarMoverMunicipio(municipio, setorAtual, event) {
         event.stopPropagation();
-        Swal.fire({
-          title: 'Remanejar Município',
-          html: 'Mover TODAS as escolas de <b>' + municipio + '</b> para qual setor?',
-          input: 'select',
-          inputOptions: { '1': 'Setor 1', '2': 'Setor 2', '3': 'Setor 3', '4': 'Setor 4', '5': 'Setor 5' },
-          inputValue: setorAtual,
-          showCancelButton: true,
-          confirmButtonText: 'MOVER TUDO',
-          cancelButtonText: 'CANCELAR'
-        }).then(function(res) {
+    Swal.fire({ title: 'Remanejar Município', html: 'Mover TODAS as escolas de <b>' + municipio + '</b> para qual setor?', input: 'select', inputOptions: { '1': 'Setor 1', '2': 'Setor 2', '3': 'Setor 3', '4': 'Setor 4', '5': 'Setor 5' }, inputValue: setorAtual, showCancelButton: true, confirmButtonText: 'MOVER TUDO', cancelButtonText: 'CANCELAR' }).then(function(res) {
           if (res.isConfirmed && res.value !== setorAtual) {
-            Swal.fire({ title: 'Excluido...', allowOutsideClick: false, didOpen: function() { Swal.showLoading() } });
-            google.script.run.withSuccessHandler(function() {
-              Swal.fire('Sucesso!', 'Município remanejado.', 'success');
-              abrirGestaoSetores(); // Recarrega dashboard
-            }).remanezarMunicipio(municipio, res.value);
+        Swal.fire({ title: 'Remanejando...', allowOutsideClick: false, didOpen: function() { Swal.showLoading() } });
+        google.script.run.withSuccessHandler(function() { Swal.fire('Sucesso!', 'Município remanejado.', 'success'); abrirGestaoSetores(); }).remanezarMunicipio(municipio, res.value);
           }
         });
       }
     
       function toggleSectorRow(el, event) {
         if (event) event.stopPropagation();
-    // Busca o container pai direto (sector-row) para evitar selecionar outros
     var container = el.closest('.sector-row');
     if (!container) return;
-    
     var content = container.querySelector('.escolas-container-modern');
     var icon = el.querySelector('.material-icons');
-    
     if (content.classList.contains('d-none')) {
       content.classList.remove('d-none');
       icon.textContent = "expand_less";
@@ -1153,57 +1058,40 @@
   }
 
     function toggleMunEscolas(el, event) {
-
       event.stopPropagation();
-
       var lista = el.querySelector('.escolas-lista');
-
       if (lista.classList.contains('d-none')) {
-
         lista.classList.remove('d-none');
-
         el.style.backgroundColor = "#fff";
-
         el.style.borderColor = "#3b82f6";
-
       } else {
-
         lista.classList.add('d-none');
-
         el.style.backgroundColor = "#f8fafc";
-
         el.style.borderColor = "#e2e8f0";
-
           }
-
         }
           // Funções para Abertura de Chamado via Técnico
                                                             function abrirNovoChamadoTecnico(inep, nome, municipio, setor, event) {
-                                                              if (event) {
-                                                                event.preventDefault();
-                                                                event.stopPropagation();
-                                                              }
+    if (event) { event.preventDefault(); event.stopPropagation(); }
                                                               document.getElementById('form-chamado-tecnico').reset();
                                                               document.getElementById('tec-esc-inep').value = inep;
                                                               document.getElementById('tec-esc-nome').value = nome;
                                                               document.getElementById('tec-esc-municipio').value = municipio;
                                                               document.getElementById('tec-esc-setor').value = setor;
                                                               document.getElementById('tec-esc-label').textContent = inep + " - " + nome;
-                                                              // Re-habilitar botão se foi desabilitado antes
                                                               var btnSalvar = document.getElementById('btn-gerar-chamado-tec');
                                                               if (btnSalvar) btnSalvar.disabled = false;
-                                                              // Reset Checkboxes
                                                               var chks = document.querySelectorAll('.chk-tipo');
                                                               for(var i=0; i<chks.length; i++) chks[i].checked = false;
                                                               toggleCamposSolicitante();
-                                                              toggleTipoOutro(); // Reset visual state
+    toggleTipoOutro(); 
                                                               $('#chamadoTecnicoModal').modal('show');
                                                             }
+
                                                             function toggleCamposSolicitante() {
                                                               var origemEl = document.querySelector('input[name="tec-origem"]:checked');
                                                               var origem = origemEl ? origemEl.value : "";
                                                               var container = document.getElementById('container-solicitante');
-                                                              // Se for Preventivo, esconde campos de solicitante
                                                               if (origem.indexOf('Preventivo') > -1) {
                                                                 container.classList.add('d-none');
                                                                 document.getElementById('tec-solicitante').required = false;
@@ -1211,6 +1099,7 @@
                                                                 container.classList.remove('d-none');
                                                               }
                                                             }
+
                                                             function toggleTipoOutro() {
                                                               var chkOutro = document.getElementById('chk-tipo-outro-check');
                                                               var inputOutro = document.getElementById('tec-tipo-outro');
@@ -1224,452 +1113,101 @@
                                                                 inputOutro.value = '';
                                                               }
                                                             }
+
                               function salvarChamadoTecnico() {
             var inep = document.getElementById('tec-esc-inep').value;
-            if (!inep) {
-              showMsg("Atenção", "Por favor, selecione uma escola primeiro.", "warning");
-              return;
-            }
-
+    if (!inep) { showMsg("Atenção", "Por favor, selecione uma escola primeiro.", "warning"); return; }
             var btnSalvar = document.getElementById('btn-gerar-chamado-tec');
-            if (btnSalvar && btnSalvar.disabled) return; // Proteção extra contra cliques múltiplos
+    if (btnSalvar && btnSalvar.disabled) return;
             if (btnSalvar) btnSalvar.disabled = true;
-
             var origemEl = document.querySelector('input[name="tec-origem"]:checked');
             var origem = origemEl ? origemEl.value : "";
-            
-            // Coletar múltiplos valores via Checkbox
             var chks = document.querySelectorAll('.chk-tipo:checked');
             var tiposSelecionados = [];
             var temOutro = false;
-
             for (var i = 0; i < chks.length; i++) {
-              if (chks[i].value === 'Outro') {
-                temOutro = true;
-              } else {
-                tiposSelecionados.push(chks[i].value);
+      if (chks[i].value === 'Outro') temOutro = true;
+      else tiposSelecionados.push(chks[i].value);
               }
-            }
-
             if (temOutro) {
               var textoOutro = document.getElementById('tec-tipo-outro').value;
-              if (!textoOutro) {
-                if (btnSalvar) btnSalvar.disabled = false;
-                showMsg("Atenção", "Especifique o tipo 'Outro'.", "warning");
-                return;
-              }
+      if (!textoOutro) { if (btnSalvar) btnSalvar.disabled = false; showMsg("Atenção", "Especifique o tipo 'Outro'.", "warning"); return; }
               tiposSelecionados.push("Outro: " + textoOutro);
             }
-            
-            if (tiposSelecionados.length === 0) {
-              if (btnSalvar) btnSalvar.disabled = false;
-              showMsg("Atenção", "Selecione pelo menos um Tipo de Solicitação.", "warning");
-              return;
-            }
+    if (tiposSelecionados.length === 0) { if (btnSalvar) btnSalvar.disabled = false; showMsg("Atenção", "Selecione pelo menos um Tipo de Solicitação.", "warning"); return; }
 
             var tipoSolicitacaoFinal = tiposSelecionados.join(" | ");
-
             var dados = {
-              inep: inep,
-              escola: document.getElementById('tec-esc-nome').value,
-              municipio: document.getElementById('tec-esc-municipio').value,
-              setor: document.getElementById('tec-esc-setor').value,
-              origem: origem,
-              tipoSolicitacao: tipoSolicitacaoFinal,
-              solicitante: document.getElementById('tec-solicitante').value,
-              masp: document.getElementById('tec-masp').value,
-              cargo: document.getElementById('tec-cargo').value,
-              celular: document.getElementById('tec-celular').value,
-              descricao: document.getElementById('tec-descricao').value
+      inep: inep, escola: document.getElementById('tec-esc-nome').value, municipio: document.getElementById('tec-esc-municipio').value, setor: document.getElementById('tec-esc-setor').value, origem: origem, tipoSolicitacao: tiposSelecionados.join(" | "), solicitante: document.getElementById('tec-solicitante').value, masp: document.getElementById('tec-masp').value, cargo: document.getElementById('tec-cargo').value, celular: document.getElementById('tec-celular').value, descricao: document.getElementById('tec-descricao').value
             };
-        
             Swal.fire({ title: 'Gerando chamado...', allowOutsideClick: false, didOpen: function() { Swal.showLoading() } });
-            
             google.script.run
               .withSuccessHandler(function(resp) {
-                if (resp && resp.success) {
-                  Swal.fire({
-                    icon: 'success',
-                    title: 'Chamado Gerado!',
-                    text: 'Protocolo: #' + resp.protocolo,
-                    confirmButtonText: 'OK'
-                  }).then(function() {
-                    $('#chamadoTecnicoModal').modal('hide');
-                    refreshDados(); 
-                  });
-                } else {
-                  if (btnSalvar) btnSalvar.disabled = false;
-                  showMsg("Erro no Servidor", (resp ? resp.message : "Resposta inválida"), "error");
-                }
+        if (resp && resp.success) { Swal.fire({ icon: 'success', title: 'Chamado Gerado!', text: 'Protocolo: #' + resp.protocolo, confirmButtonText: 'OK' }).then(function() { $('#chamadoTecnicoModal').modal('hide'); refreshDados(); }); }
+        else { if (btnSalvar) btnSalvar.disabled = false; showMsg("Erro no Servidor", (resp ? resp.message : "Resposta inválida"), "error"); }
               })
-              .withFailureHandler(function(err) {
-                if (btnSalvar) btnSalvar.disabled = false;
-                showError(err);
-              })
+      .withFailureHandler(function(err) { if (btnSalvar) btnSalvar.disabled = false; showError(err); })
               .salvarChamadoManualTecnico(dados);
           }
 
           // ==========================================
           // GESTÃO DE CONFIGURAÇÕES (TÉCNICOS E FERIADOS)
           // ==========================================
-          
-          function abrirConfiguracoes() {
-            carregarTecnicos();
-            carregarFeriados();
-            $('#configModal').modal('show');
-          }
+  function abrirConfiguracoes() { carregarTecnicos(); carregarFeriados(); $('#configModal').modal('show'); }
 
           // --- TÉCNICOS ---
           var listaTecnicos = [];
-
-          function carregarTecnicos() {
-            google.script.run
-              .withSuccessHandler(function(data) {
-                listaTecnicos = data;
-                renderTecnicos();
-              })
-              .getTecnicos();
-          }
-
+  function carregarTecnicos() { google.script.run.withSuccessHandler(function(data) { listaTecnicos = data; renderTecnicos(); }).getTecnicos(); }
           function renderTecnicos() {
             var tbody = document.getElementById('tbody-tecnicos');
             tbody.innerHTML = '';
-            
             listaTecnicos.forEach(function(t) {
-              var adminBadge = (String(t.admin).toUpperCase() === 'TRUE') 
-                ? '<span class="badge badge-success">SIM</span>' 
-                : '<span class="badge badge-light text-muted">NÃO</span>';
-                
-              var html = '<tr>' +
-                '<td class="pl-3 font-weight-bold align-middle">' + t.nome + '</td>' +
-                '<td class="align-middle text-muted small">' + (t.masp || '-') + '</td>' +
-                '<td class="align-middle text-muted small">' + t.email + '</td>' +
-                '<td class="text-center align-middle font-weight-bold">' + t.setor + '</td>' +
-                '<td class="text-center align-middle">' + adminBadge + '</td>' +
-                '<td class="text-right pr-3">' +
-                  '<button class="btn btn-sm btn-link text-primary p-0 mr-2" onclick="editarTecnico(\'' + t.email + '\')"><i class="material-icons" style="font-size:16px">edit</i></button>' +
-                  '<button class="btn btn-sm btn-link text-danger p-0" onclick="excluirTecnico(\'' + t.email + '\')"><i class="material-icons" style="font-size:16px">delete</i></button>' +
-                '</td>' +
-              '</tr>';
+      var adminBadge = (String(t.admin).toUpperCase() === 'TRUE') ? '<span class="badge badge-success">SIM</span>' : '<span class="badge badge-light text-muted">NÃO</span>';
+      var html = '<tr><td class="pl-3 font-weight-bold align-middle">' + t.nome + '</td><td class="align-middle text-muted small">' + (t.masp || '-') + '</td><td class="align-middle text-muted small">' + t.email + '</td><td class="text-center align-middle font-weight-bold">' + t.setor + '</td><td class="text-center align-middle">' + adminBadge + '</td><td class="text-right pr-3"><button class="btn btn-sm btn-link text-primary p-0 mr-2" onclick="editarTecnico(\'' + t.email + '\')"><i class="material-icons" style="font-size:16px">edit</i></button><button class="btn btn-sm btn-link text-danger p-0" onclick="excluirTecnico(\'' + t.email + '\')"><i class="material-icons" style="font-size:16px">delete</i></button></td></tr>';
               tbody.insertAdjacentHTML('beforeend', html);
             });
-            
-            // Aproveita para popular o select de técnicos auxiliares no formulário de status
-            popularSelectTecnicosAuxiliares();
           }
 
-          function popularSelectTecnicosAuxiliares() {
-            var select = document.getElementById('input-tecnicos-auxiliares');
-            if (!select) return;
-            select.innerHTML = '';
-            listaTecnicos.forEach(function(t) {
-              var opt = document.createElement('option');
-              opt.value = t.email;
-              opt.textContent = t.nome + (t.masp ? " (" + t.masp + ")" : "");
-              select.appendChild(opt);
-            });
-          }
-
-          function novoTecnico() {
-            document.getElementById('form-tecnico').reset();
-            document.getElementById('cfg-tec-email').readOnly = false;
-            document.getElementById('cfg-tec-masp').value = "";
-            $('#formTecnicoModal').modal('show');
-          }
-
+  function novoTecnico() { document.getElementById('form-tecnico').reset(); document.getElementById('cfg-tec-email').readOnly = false; document.getElementById('cfg-tec-masp').value = ""; $('#formTecnicoModal').modal('show'); }
           function editarTecnico(email) {
             var t = listaTecnicos.find(function(x) { return x.email === email; });
             if (!t) return;
-            
             document.getElementById('cfg-tec-email').value = t.email;
-            document.getElementById('cfg-tec-email').readOnly = true; // Email é chave
+    document.getElementById('cfg-tec-email').readOnly = true; 
             document.getElementById('cfg-tec-nome').value = t.nome;
             document.getElementById('cfg-tec-masp').value = t.masp || "";
             document.getElementById('cfg-tec-setor').value = t.setor;
             document.getElementById('cfg-tec-admin').value = (String(t.admin).toUpperCase() === 'TRUE') ? "TRUE" : "FALSE";
-            
             $('#formTecnicoModal').modal('show');
           }
 
           function salvarTecnico() {
-            var dados = {
-              email: document.getElementById('cfg-tec-email').value,
-              nome: document.getElementById('cfg-tec-nome').value,
-              masp: document.getElementById('cfg-tec-masp').value,
-              setor: document.getElementById('cfg-tec-setor').value,
-              admin: document.getElementById('cfg-tec-admin').value
-            };
-            
+    var dados = { email: document.getElementById('cfg-tec-email').value, nome: document.getElementById('cfg-tec-nome').value, masp: document.getElementById('cfg-tec-masp').value, setor: document.getElementById('cfg-tec-setor').value, admin: document.getElementById('cfg-tec-admin').value };
             Swal.fire({ title: 'Salvando...', didOpen: () => Swal.showLoading() });
-            google.script.run.withSuccessHandler(function(res) {
-              if (res.success) {
-                Swal.close();
-                $('#formTecnicoModal').modal('hide');
-                carregarTecnicos();
-              } else {
-                showMsg("Erro", res.message, "error");
-              }
-            }).salvarTecnico(dados);
+    google.script.run.withSuccessHandler(function(res) { if (res.success) { Swal.close(); $('#formTecnicoModal').modal('hide'); carregarTecnicos(); } else { showMsg("Erro", res.message, "error"); } }).salvarTecnico(dados);
           }
 
-          function excluirTecnico(email) {
-            if (!confirm("Excluir " + email + "?")) return;
-            
-            google.script.run.withSuccessHandler(function(res) {
-               if(res.success) carregarTecnicos();
-               else showMsg("Erro", res.message, "error");
-            }).excluirTecnico(email);
-          }
+  function excluirTecnico(email) { if (!confirm("Excluir " + email + "?")) return; google.script.run.withSuccessHandler(function(res) { if(res.success) carregarTecnicos(); else showMsg("Erro", res.message, "error"); }).excluirTecnico(email); }
 
           // --- FERIADOS ---
           var listaFeriados = [];
-
-          function carregarFeriados() {
-            google.script.run
-              .withSuccessHandler(function(data) {
-                listaFeriados = data;
-                renderFeriados();
-              })
-              .getFeriados();
-          }
-
+  function carregarFeriados() { google.script.run.withSuccessHandler(function(data) { listaFeriados = data; renderFeriados(); }).getFeriados(); }
           function renderFeriados() {
             var tbody = document.getElementById('tbody-feriados');
             tbody.innerHTML = '';
-            
             listaFeriados.forEach(function(f) {
-              var html = '<tr>' +
-                '<td class="pl-3 font-weight-bold align-middle">' + f.dataFmt + '</td>' +
-                '<td class="align-middle text-muted">' + f.descricao + '</td>' +
-                '<td class="text-right pr-3">' +
-                   '<button class="btn btn-sm btn-link text-danger p-0" onclick="excluirFeriado(\'' + f.data + '\')"><i class="material-icons" style="font-size:16px">delete</i></button>' +
-                '</td>' +
-              '</tr>';
+      var html = '<tr><td class="pl-3 font-weight-bold align-middle">' + f.dataFmt + '</td><td class="align-middle text-muted">' + f.descricao + '</td><td class="text-right pr-3"><button class="btn btn-sm btn-link text-danger p-0" onclick="excluirFeriado(\'' + f.data + '\')"><i class="material-icons" style="font-size:16px">delete</i></button></td></tr>';
               tbody.insertAdjacentHTML('beforeend', html);
             });
           }
 
-          function novoFeriado() {
-            document.getElementById('form-feriado').reset();
-            $('#formFeriadoModal').modal('show');
-          }
-
+  function novoFeriado() { document.getElementById('form-feriado').reset(); $('#formFeriadoModal').modal('show'); }
           function salvarFeriado() {
-            var dados = {
-              data: document.getElementById('cfg-fer-data').value,
-              descricao: document.getElementById('cfg-fer-desc').value
-            };
+    var dados = { data: document.getElementById('cfg-fer-data').value, descricao: document.getElementById('cfg-fer-desc').value };
             if(!dados.data) return alert("Data obrigatória");
-
             Swal.fire({ title: 'Salvando...', didOpen: () => Swal.showLoading() });
-            google.script.run.withSuccessHandler(function(res) {
-              if (res.success) {
-                Swal.close();
-                $('#formFeriadoModal').modal('hide');
-                carregarFeriados();
-              } else {
-                showMsg("Erro", res.message, "error");
-              }
-            }).salvarFeriado(dados);
+    google.script.run.withSuccessHandler(function(res) { if (res.success) { Swal.close(); $('#formFeriadoModal').modal('hide'); carregarFeriados(); } else { showMsg("Erro", res.message, "error"); } }).salvarFeriado(dados);
           }
 
-          function excluirFeriado(data) {
-             if (!confirm("Excluir feriado?")) return;
-             google.script.run.withSuccessHandler(function(res) {
-               if(res.success) carregarFeriados();
-             }).excluirFeriado(data);
-          }
-
-  function atualizarContadoresStatus() {
-    if (!todosOsChamados || todosOsChamados.length === 0) return;
-
-    var counts = {
-      'all': 0,
-      'abertos': 0,
-      'Novo': 0,
-      'Agendado': 0,
-      'Pendente': 0,
-      'Concluido': 0,
-      'Cancelado': 0,
-      'Atrasado': 0
-    };
-
-    var statusAbertos = ['Novo', 'Agendado', 'Pendente', 'Atrasado'];
-
-    todosOsChamados.forEach(function(t) {
-      // REGRA DE OURO: Só conta se for visível para o usuário (Setor/Técnico)
-      if (!isTicketVisible(t)) return;
-
-      counts['all']++;
-
-      var status = String(t.status || '').trim();
-      var isFinalizado = (status === 'Concluído' || status === 'Cancelado');
-      var slaEstourado = (t.slaEstourado === true || String(t.slaEstourado).toUpperCase() === 'TRUE');
-      
-      // 1. Contador de Atrasados (Lógica Única)
-      if (!isFinalizado && (status === 'Atrasado' || slaEstourado)) {
-        counts['Atrasado']++;
-      }
-
-      // 2. Contadores nominais básicos
-      if (status === 'Novo') counts['Novo']++;
-      else if (status === 'Agendado') counts['Agendado']++;
-      else if (status === 'Pendente') counts['Pendente']++;
-      else if (status === 'Concluído') counts['Concluido']++;
-      else if (status === 'Cancelado') counts['Cancelado']++;
-
-      // 3. Contador de Abertos (Geral visível)
-      if (statusAbertos.indexOf(status) > -1) {
-        counts['abertos']++;
-      }
-    });
-
-    // Atualiza o DOM
-    Object.keys(counts).forEach(function(key) {
-      var el = document.getElementById('count-' + key);
-      if (el) el.textContent = counts[key];
-    });
-  }
-
-  function renderDashboardLocal() {
-    document.getElementById('loading-spinner').style.display = 'none';
-    var container = document.getElementById('chamados-container');
-    container.innerHTML = '';
-    document.getElementById('empty-state').style.display = 'none';
-    document.getElementById('paginacao-container').innerHTML = '';
-
-    // ATUALIZA CONTADORES DE STATUS
-    atualizarContadoresStatus();
-
-    // 1. FILTRAGEM LOCAL
-    var filtrados = todosOsChamados.filter(function(t) {
-      // REGRA DE OURO: Só processa se for visível para o usuário (Setor/Técnico)
-      if (!isTicketVisible(t)) return false;
-
-      var ticketStatus = String(t.status || '').trim();
-      var isFinalizado = (ticketStatus === 'Concluído' || ticketStatus === 'Cancelado');
-      var isAberto = !isFinalizado;
-      var slaEstourado = (t.slaEstourado === true || String(t.slaEstourado).toUpperCase() === 'TRUE');
-      var isAtrasado = isAberto && (ticketStatus === 'Atrasado' || slaEstourado);
-      
-      if (filtroAtual === 'all') return true;
-      
-      // Definição 1: Chamados Abertos (Tudo exceto finalizados)
-      if (filtroAtual === 'abertos') return isAberto;
-      
-      // Definição 2: Atrasados (Status Atrasado OU SLA estourado, desde que aberto)
-      if (filtroAtual === 'Atrasado') return isAtrasado;
-
-      return ticketStatus === filtroAtual;
-    });
-
-    // 2. ORDENAÇÃO
-    filtrados.sort(function(a, b) {
-      // Valores numéricos para comparação precisa
-      var timeA = a.timestamp || 0;
-      var timeB = b.timestamp || 0;
-      var schedA = a.scheduledTimestamp || 0;
-      var schedB = b.scheduledTimestamp || 0;
-
-      // FILTROS DE OPERAÇÃO (Fila de Trabalho): Devem priorizar o que está esperando há mais tempo
-      var filtrosDeFila = ['abertos', 'Atrasado', 'Pendente', 'Novo', 'Agendado'];
-      
-      if (filtrosDeFila.indexOf(filtroAtual) > -1) {
-        var statusA = String(a.status || '').trim();
-        var statusB = String(b.status || '').trim();
-        
-        // Camada 1: Pesos de Prioridade por Status Nominal (Agrupamento em Blocos)
-        var pesos = { 'Atrasado': 10, 'Pendente': 20, 'Agendado': 30, 'Novo': 40 };
-        var pesoA = pesos[statusA] || 999;
-        var pesoB = pesos[statusB] || 999;
-
-        // Se os grupos de status forem diferentes, o grupo de maior prioridade sobe
-        if (pesoA !== pesoB) return pesoA - pesoB;
-
-        // Camada 2: Ordenação interna de cada bloco
-        if (statusA === 'Agendado') {
-          // Para AGENDADOS: Data futura mais próxima primeiro (ASC)
-          return schedA - schedB;
-        } else {
-          // Para os demais (Atrasado, Pendente, Novo): Mais antigos primeiro (ASC)
-          return timeA - timeB;
-        }
-      }
-
-      // FILTROS DE RESULTADO / HISTÓRICO (Concluído, Cancelado, Todos): Mais recentes primeiro (DESC)
-      return timeB - timeA;
-    });
-
-    // 3. PAGINAÇÃO LOCAL
-    var total = filtrados.length;
-    totalPaginas = Math.ceil(total / itensPorPagina) || 1;
-    if (paginaAtual > totalPaginas) paginaAtual = totalPaginas;
-    if (paginaAtual < 1) paginaAtual = 1;
-    var inicio = (paginaAtual - 1) * itensPorPagina;
-    var paginados = filtrados.slice(inicio, inicio + itensPorPagina);
-    listaChamados = paginados;
-
-    // 4. RENDERIZAÇÃO
-    if (paginados.length === 0) {
-      document.getElementById('empty-state').style.display = 'block';
-      document.querySelector('#empty-state p').textContent = "Nenhum chamado encontrado com o filtro atual.";
-      return;
-    }
-
-    container.style.display = 'flex'; 
-    paginados.forEach(function(c) {
-      var status = c.status || 'Novo';
-      var protocolo = c.protocolo || 'N/A';
-      var escola = c.escolaNome || 'Escola não identificada';
-      var municipio = c.municipio || 'Município N/D';
-      var tecnico = c.tecnicoNome || 'Sem técnico';
-      var tipo = c.tipo || 'Geral';
-      var data = c.dataAbertura || '';
-      var hasTermo = !!c.linkTermo;
-      
-      // Lógica de SLA e Ícone: Ignora SLA se finalizado
-      var isFinalizado = (status === "Concluído" || status === "Cancelado");
-      var slaReal = (!isFinalizado && (status === "Atrasado" || c.slaEstourado === true || String(c.slaEstourado).toUpperCase() === 'TRUE'));
-
-      var icon = "help_outline";
-      if (status === "Novo") icon = "fiber_new";
-      else if (status === "Agendado") icon = "event";
-      else if (status === "Pendente") icon = "hourglass_empty";
-      else if (status === "Concluído") icon = "check_circle";
-      else if (status === "Cancelado") icon = "cancel";
-      if (slaReal) icon = "warning";
-
-      var slaHtml = slaReal ? '<span class="badge-sla">SLA ESTOURADO</span>' : '';
-      var termoHtml = hasTermo ? '<i class="material-icons text-danger ml-2" style="font-size:18px;" title="Termo de Visita Gerado">picture_as_pdf</i>' : '';
-
-      var html = '<div class="col-12 col-md-6 col-lg-4 mb-4 item-chamado" data-status="' + status + '" data-protocolo="' + protocolo + '">' + 
-          '<div class="card-chamado h-100 status-' + status + '" onclick="abrirDetalhes(\'' + protocolo + '\')">' + 
-            '<div class="p-3">' + 
-              '<div class="d-flex justify-content-between align-items-start mb-2">' + 
-                '<div class="d-flex align-items-center"><span class="card-protocolo">#' + protocolo + '</span>' + termoHtml + '</div>' + 
-                '<small class="text-muted font-weight-bold" style="font-size:12px;">' + data + '</small>' + 
-              '</div>' + 
-              '<div class="card-escola truncate">' + escola + '</div>' + 
-              '<div class="card-municipio">' + 
-                '<i class="material-icons mr-1" style="font-size:12px;">place</i>' + municipio + 
-              '</div>' + 
-              '<div class="card-tipo">' + tipo + '</div>' + 
-              '<div class="card-footer-info">' + 
-                '<div class="d-flex align-items-center">' + 
-                  '<i class="material-icons mr-1" style="font-size:16px;">' + icon + '</i>' + 
-                  '<span class="font-weight-bold text-uppercase" style="font-size:10px; letter-spacing:0.5px;">' + status + '</span>' + 
-                '</div>' + 
-                '<div class="d-flex align-items-center">' + 
-                   '<span class="tecnico-badge">' + tecnico + '</span>' + 
-                   slaHtml + 
-                '</div>' + 
-              '</div>' + 
-            '</div>' + 
-          '</div>' + 
-        '</div>';
-      container.insertAdjacentHTML('beforeend', html);
-    });
-
-    renderizarPaginacao();
-  }
+  function excluirFeriado(data) { if (!confirm("Excluir feriado?")) return; google.script.run.withSuccessHandler(function(res) { if(res.success) carregarFeriados(); }).excluirFeriado(data); }
 </script>

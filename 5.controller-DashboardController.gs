@@ -81,6 +81,7 @@ var DashboardController = {
           t.latitude = escolaInfo.lat || "";
           t.longitude = escolaInfo.long || "";
           t.contatoDiretor = escolaInfo.fone || ""; 
+          t.diretorNome = escolaInfo.diretor || "";
           
           // RESOLUÇÃO DE NOME DO TÉCNICO
           var emailTec = String(t.tecnico || '').toLowerCase().trim();
