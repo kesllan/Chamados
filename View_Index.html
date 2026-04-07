@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Gestão NTE</title>
+    <!-- CSS Estático e Estável -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Bibliotecas JS (jQuery primeiro) -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <?!= include('css'); ?>
+  </head>
+  <body>
+    
+    <!-- Navbar -->
+    <nav class="navbar navbar-dark navbar-nte fixed-top shadow-sm">
+      <div class="container-fluid d-flex justify-content-between align-items-center">
+        <span class="navbar-brand mb-0 h1 d-flex align-items-center font-weight-bold">
+          <i class="material-icons mr-2">handyman</i> NTE Chamados
+        </span>
+        
+        <div class="d-flex align-items-center text-white">
+          <button class="btn btn-sm btn-outline-light mr-2 d-flex align-items-center font-weight-bold" onclick="abrirGestaoSetores()" style="border-radius: 20px;">
+            <i class="material-icons mr-1" style="font-size:18px">grid_view</i> Setores
+          </button>
+          <button class="btn btn-sm btn-outline-light mr-3 d-flex align-items-center font-weight-bold" onclick="abrirGestaoEscolas()" style="border-radius: 20px;">
+            <i class="material-icons mr-1" style="font-size:18px">school</i> Escolas
+          </button>
+          <button class="btn btn-sm btn-outline-light mr-3 d-flex align-items-center font-weight-bold" onclick="abrirNovoChamadoTecnico('', '', '', '')" style="border-radius: 20px;">
+            <i class="material-icons mr-1" style="font-size:18px">add_circle</i> Novo Chamado
+          </button>
+          <div id="admin-zone" class="d-flex"></div>
+          <div class="user-badge-wrapper d-none d-md-flex align-items-center mr-3">
+            <span class="badge badge-light p-2" style="border-radius: 20px;">
+              <i class="material-icons align-middle text-primary" style="font-size:14px">person</i>
+              <span id="user-email" class="text-primary font-weight-bold">...</span>
+              <span class="ml-1 text-muted" style="font-size:9px" id="user-role"></span>
+            </span>
+          </div>
+          <button class="btn btn-sm btn-light rounded-circle" onclick="loadDashboard(1)">
+            <i class="material-icons align-middle">refresh</i>
+          </button>
+        </div>
+      </div>
+    </nav>
+
+    <div class="container-fluid main-content mt-4">
+      <!-- Filtros -->
+      <div id="filter-bar" class="mb-3">
+        <div class="filter-chip active" data-filter="abertos" onclick="filtrarChamados('abertos', this)">
+          <i class="material-icons">folder_open</i> Chamados Abertos <span class="badge badge-pill badge-status-count ml-1" id="count-abertos">0</span>
+        </div>
+        <div class="filter-chip" data-filter="Atrasado" onclick="filtrarChamados('Atrasado', this)">
+          <i class="material-icons">warning</i> Atrasados <span class="badge badge-pill badge-status-count ml-1" id="count-Atrasado">0</span>
+        </div>
+        <div class="filter-chip" data-filter="Novo" onclick="filtrarChamados('Novo', this)">
+          <i class="material-icons">new_releases</i> Novo <span class="badge badge-pill badge-status-count ml-1" id="count-Novo">0</span>
+        </div>
+        <div class="filter-chip" data-filter="Agendado" onclick="filtrarChamados('Agendado', this)">
+          <i class="material-icons">event</i> Agendado <span class="badge badge-pill badge-status-count ml-1" id="count-Agendado">0</span>
+        </div>
+        <div class="filter-chip" data-filter="Pendente" onclick="filtrarChamados('Pendente', this)">
+          <i class="material-icons">hourglass_empty</i> Pendente <span class="badge badge-pill badge-status-count ml-1" id="count-Pendente">0</span>
+        </div>
+        <div class="filter-chip" data-filter="Concluído" onclick="filtrarChamados('Concluído', this)">
+          <i class="material-icons">check_circle</i> Concluído <span class="badge badge-pill badge-status-count ml-1" id="count-Concluido">0</span>
+        </div>
+        <div class="filter-chip" data-filter="Cancelado" onclick="filtrarChamados('Cancelado', this)">
+          <i class="material-icons">cancel</i> Cancelado <span class="badge badge-pill badge-status-count ml-1" id="count-Cancelado">0</span>
+        </div>
+        <div class="filter-chip" data-filter="all" onclick="filtrarChamados('all', this)">
+          <i class="material-icons">list</i> Todos <span class="badge badge-pill badge-status-count ml-1" id="count-all">0</span>
+        </div>
+      </div>
+
+      <!-- Spinner -->
+      <div id="loading-spinner" class="loader-wrapper">
+        <div class="spinner-nte"></div>
+        <p class="mt-3 text-muted font-weight-bold text-uppercase" style="font-size: 10px; letter-spacing: 2px;">Carregando...</p>
+      </div>
+
+      <!-- Grid -->
+      <div id="chamados-container" class="row" style="display:none;"></div>
+      
+      <!-- Paginação -->
+      <div id="paginacao-container" class="d-flex justify-content-center mt-4"></div>
+      
+      <!-- Vazio -->
+      <div id="empty-state" class="text-center mt-5 py-5" style="display:none;">
+        <i class="material-icons text-muted" style="font-size: 64px; opacity: 0.2;">inbox</i>
+        <p class="text-muted font-weight-bold text-uppercase mt-2">Nenhum chamado encontrado.</p>
+      </div>
+    </div>
+
+    <!-- Modal Details -->
+    <div class="modal fade shadow-lg" id="detalhesModal" role="dialog" aria-hidden="true">
+      <div class="modal-dialog modal-fullscreen-custom modal-dialog-scrollable" role="document">
+        <div class="modal-content border-0">
+          <div class="modal-header bg-primary text-white py-3">
+            <h5 class="modal-title font-weight-bold uppercase" style="font-size: 14px; letter-spacing: 1px;">
+              <i class="material-icons align-middle mr-2">description</i>
+              <span id="detalhe-protocolo">#0000</span>
+            </h5>
+            <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+          </div>
+          <div class="modal-body p-0 bg-light">
+            <div class="container-fluid h-100 p-0">
+              <div class="row no-gutters h-100">
+                
+                <!-- COLUNA 1: Informações e Solicitante -->
+                <div class="col-lg-4 d-flex flex-column border-right h-100-desktop">
+                  <div class="p-4 scrollable-panel">
+                    <h6 class="font-weight-bold text-secondary text-uppercase mb-3"><i class="material-icons align-middle mr-1">info</i> Informações</h6>
+                    
+                    <div class="card border-0 shadow-sm mb-4" style="border-radius: 15px;">
+                      <div class="card-body p-4">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                          <h6 class="font-weight-bold text-primary text-uppercase mb-0 flex-grow-1" id="detalhe-escola" style="font-size: 16px; border-left: 4px solid #007bff; padding-left: 10px;">...</h6>
+                          <div class="d-flex ml-2">
+                             <a href="#" id="btn-whatsapp" target="_blank" class="text-success mr-2" title="WhatsApp Escola"><i class="fab fa-whatsapp" style="font-size: 24px;"></i></a>
+                             <a href="#" id="btn-maps" target="_blank" class="text-primary" title="Ver no Mapa"><i class="material-icons" style="font-size: 24px;">place</i></a>
+                          </div>
+                        </div>
+                        <div class="row">
+                          <div class="col-6 mb-3"><label class="text-muted font-weight-bold small text-uppercase mb-0">Tipo</label><div id="detalhe-tipo" class="font-weight-bold" style="font-size: 16px;">...</div></div>
+                          <div class="col-6 mb-3"><label class="text-muted font-weight-bold small text-uppercase mb-0">Abertura</label><div id="detalhe-data" class="font-weight-bold" style="font-size: 16px;">--/--/----</div></div>
+                          <div class="col-6 mb-3"><label class="text-muted font-weight-bold small text-uppercase mb-0">Status</label><div id="detalhe-dias-wrapper"><span id="detalhe-dias" class="badge badge-dark p-2" style="font-size: 14px;">...</span></div></div>
+                          <div class="col-6 mb-3"><label class="text-muted font-weight-bold small text-uppercase mb-0">Técnico</label><div id="detalhe-tecnico" class="font-weight-bold" style="font-size: 16px;">...</div></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Dados do Solicitante -->
+                    <h6 class="font-weight-bold text-secondary text-uppercase mb-3"><i class="material-icons align-middle mr-1">person</i> Solicitante</h6>
+                    <div class="card border-0 shadow-sm mb-4" style="border-radius: 15px;">
+                      <div class="card-body p-4">
+                        <div class="mb-3"><label class="text-muted font-weight-bold small text-uppercase mb-0">Nome</label><div id="detalhe-solicitante" class="font-weight-bold text-dark" style="font-size: 16px;">...</div></div>
+                        <div class="row">
+                          <div class="col-6"><label class="text-muted font-weight-bold small text-uppercase mb-0">Cargo</label><div id="detalhe-cargo" class="font-weight-bold text-dark" style="font-size: 15px;">...</div></div>
+                          <div class="col-6">
+                            <label class="text-muted font-weight-bold small text-uppercase mb-0">Celular</label>
+                            <div class="d-flex align-items-center">
+                              <div id="detalhe-celular" class="font-weight-bold text-dark mr-2" style="font-size: 15px;">...</div>
+                              <a href="#" id="btn-whatsapp-solicitante" target="_blank" class="text-success d-none"><i class="fab fa-whatsapp" style="font-size: 20px;"></i></a>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                <!-- COLUNA 2: Descrição, Obs e Anexos -->
+                <div class="col-lg-4 d-flex flex-column border-right h-100-desktop">
+                  <div class="p-4 scrollable-panel">
+                    
+                    <h6 class="font-weight-bold text-secondary text-uppercase mb-3"><i class="material-icons align-middle mr-1">subject</i> Detalhes</h6>
+                    
+                    <div class="mb-4">
+                      <label class="font-weight-bold small text-secondary text-uppercase mb-2 ml-1">Descrição do Problema</label>
+                      <div class="p-4 border rounded-lg bg-white shadow-sm" id="detalhe-texto" style="min-height: 100px; font-size: 18px; color: #333; line-height: 1.6;">...</div>
+                    </div>
+
+                    <div class="mb-4">
+                      <label class="font-weight-bold small text-secondary text-uppercase mb-2 ml-1">Observações / Justificativas</label>
+                      <div class="p-3 border rounded-lg bg-white shadow-sm" id="detalhe-obs" style="min-height: 60px; font-size: 17px; color: #555; font-style: italic; line-height: 1.5;">...</div>
+                    </div>
+
+                    <h6 class="font-weight-bold text-secondary text-uppercase mb-3 mt-4"><i class="material-icons align-middle mr-1">attach_file</i> Anexos</h6>
+                    <div id="galeria-anexos" class="row p-2 mb-4 bg-white border rounded shadow-sm" style="min-height: 100px;"></div>
+
+                  </div>
+                </div>
+
+                <!-- COLUNA 3: Ação -->
+                <div class="col-lg-4 d-flex flex-column h-100-desktop bg-white">
+                  <div class="p-4 scrollable-panel">
+                    <h6 class="font-weight-bold text-secondary text-uppercase mb-3"><i class="material-icons align-middle mr-1">build</i> Ação</h6>
+                    
+                    <div class="card border-0 shadow-sm" style="border-radius: 15px;">
+                      <div class="card-body p-4">
+                        <form id="form-status">
+                          <input type="hidden" id="input-status-selecionado">
+                          <div class="row no-gutters mb-4">
+                            <div class="col-6 col-md-3 p-1"><button type="button" class="btn btn-outline-primary btn-block btn-status py-3" data-value="Agendado" onclick="selecionarStatus(this)"><i class="material-icons d-block">event</i> <small class="font-weight-bold uppercase" style="font-size: 9px;">AGENDAR</small></button></div>
+                            <div class="col-6 col-md-3 p-1"><button type="button" class="btn btn-outline-warning btn-block btn-status py-3" data-value="Pendente" onclick="selecionarStatus(this)"><i class="material-icons d-block">hourglass_empty</i> <small class="font-weight-bold uppercase" style="font-size: 9px;">PENDENTE</small></button></div>
+                            <div class="col-6 col-md-3 p-1"><button type="button" class="btn btn-outline-success btn-block btn-status py-3" id="btn-status-concluido" data-value="Concluído" onclick="selecionarStatus(this)"><i class="material-icons d-block">check_circle</i> <small class="font-weight-bold uppercase" style="font-size: 9px;">CONCLUIR</small></button></div>
+                            <div class="col-6 col-md-3 p-1"><button type="button" class="btn btn-outline-danger btn-block btn-status py-3" data-value="Cancelado" onclick="selecionarStatus(this)"><i class="material-icons d-block">cancel</i> <small class="font-weight-bold uppercase" style="font-size: 9px;">CANCELAR</small></button></div>
+                          </div>
+                          
+                          <div id="campo-agendamento" class="hidden-field d-none bg-light p-3 rounded mb-3 border border-primary">
+                            <label class="font-weight-bold text-primary small">DATA VISITA</label>
+                            <input type="date" id="input-data-agendamento" class="form-control mb-2">
+                            <label class="font-weight-bold text-primary small uppercase">Observações do Agendamento</label>
+                            <textarea id="input-agendar-obs" rows="2" class="form-control" placeholder="Ex: Detalhes do local, avisos..."></textarea>
+                          </div>
+
+                          <div id="campo-pendente" class="hidden-field d-none bg-light p-3 rounded mb-3 border border-warning">
+                            <label class="font-weight-bold text-warning small uppercase">Justificativa da Pendência</label>
+                            <textarea id="input-justificativa-pendente" rows="2" class="form-control" placeholder="Por que o chamado ficou pendente?"></textarea>
+                          </div>
+
+                          <div id="campo-cancelado" class="hidden-field d-none bg-light p-3 rounded mb-3 border border-danger">
+                            <label class="font-weight-bold text-danger small uppercase">Motivo do Cancelamento</label>
+                            <textarea id="input-justificativa-cancelado" rows="2" class="form-control" placeholder="Descreva o motivo do cancelamento..."></textarea>
+                          </div>
+                          
+                          <div id="campo-conclusao" class="hidden-field d-none bg-light p-3 rounded mb-3 border border-success">
+                            <h6 class="font-weight-bold text-success small mb-3 uppercase">Conclusão</h6>
+                            <div class="row">
+                              <div class="col-12 mb-2">
+                                <label class="small font-weight-bold uppercase">Tipo de Atendimento</label>
+                                <select id="input-tipo-atendimento" class="form-control">
+                                  <option value="">Selecionar...</option>
+                                  <option value="Presencial">Presencial</option>
+                                  <option value="Remoto">Remoto</option>
+                                </select>
+                              </div>
+                              <div class="col-12 mb-2">
+                                <label class="small font-weight-bold uppercase">Técnicos Auxiliares (Opcional)</label>
+                                <select id="input-tecnicos-auxiliares" class="form-control" multiple style="height: 100px;">
+                                  <!-- Populado via JS -->
+                                </select>
+                                <small class="text-muted" style="font-size: 10px;">Segure Ctrl para selecionar vários.</small>
+                              </div>
+                              <div class="col-12 mb-2">
+                                <label class="small font-weight-bold uppercase">Nome do Servidor (Assinante)</label>
+                                <input type="text" id="input-nome-assinante" class="form-control" placeholder="Quem acompanhou o atendimento?">
+                              </div>
+                              <div class="col-6 mb-2">
+                                <label class="small font-weight-bold uppercase">Hora Início</label>
+                                <input type="time" id="input-hora-inicio" class="form-control">
+                              </div>
+                              <div class="col-6 mb-2">
+                                <label class="small font-weight-bold uppercase">Hora Fim</label>
+                                <input type="time" id="input-hora-fim" class="form-control">
+                              </div>
+                              <div class="col-12 mb-2">
+                                <label class="small font-weight-bold uppercase">Categoria Macro (Múltiplo)</label>
+                                <div class="border rounded p-2 bg-white" style="max-height: 120px; overflow-y: auto;">
+                                  <div class="custom-control custom-checkbox"><input type="checkbox" class="custom-control-input chk-conclusao-cat" id="cat-hw" value="Hardware"><label class="custom-control-label small" for="cat-hw">Hardware</label></div>
+                                  <div class="custom-control custom-checkbox"><input type="checkbox" class="custom-control-input chk-conclusao-cat" id="cat-sw" value="Software"><label class="custom-control-label small" for="cat-sw">Software</label></div>
+                                  <div class="custom-control custom-checkbox"><input type="checkbox" class="custom-control-input chk-conclusao-cat" id="cat-rd" value="Rede"><label class="custom-control-label small" for="cat-rd">Rede</label></div>
+                                  <div class="custom-control custom-checkbox"><input type="checkbox" class="custom-control-input chk-conclusao-cat" id="cat-imp" value="Impressoras"><label class="custom-control-label small" for="cat-imp">Impressoras</label></div>
+                                </div>
+                              </div>
+                              <div class="col-12 mb-2">
+                                <label class="small font-weight-bold uppercase">Causa Raiz (Múltiplo)</label>
+                                <div class="border rounded p-2 bg-white" style="max-height: 120px; overflow-y: auto;">
+                                  <div class="custom-control custom-checkbox"><input type="checkbox" class="custom-control-input chk-conclusao-causa" id="causa-dn" value="Desgaste Natural"><label class="custom-control-label small" for="causa-dn">Desgaste Natural</label></div>
+                                  <div class="custom-control custom-checkbox"><input type="checkbox" class="custom-control-input chk-conclusao-causa" id="causa-mu" value="Mau Uso"><label class="custom-control-label small" for="causa-mu">Mau Uso</label></div>
+                                  <div class="custom-control custom-checkbox"><input type="checkbox" class="custom-control-input chk-conclusao-causa" id="causa-def" value="Defeito"><label class="custom-control-label small" for="causa-def">Defeito</label></div>
+                                  <div class="custom-control custom-checkbox"><input type="checkbox" class="custom-control-input chk-conclusao-causa" id="causa-cfg" value="Configuração"><label class="custom-control-label small" for="causa-cfg">Configuração</label></div>
+                                </div>
+                              </div>
+                              <div class="col-12"><label class="small font-weight-bold uppercase">Solução</label><textarea id="input-solucao" rows="3" class="form-control" placeholder="Descreva o que foi feito..."></textarea></div>
+                            </div>
+                          </div>
+                          
+                          <button type="button" class="btn btn-primary btn-block py-3 mt-2 font-weight-bold" style="border-radius: 12px;" onclick="salvarStatus()">SALVAR ALTERAÇÕES</button>
+                        </form>
+                        
+                        <div id="aviso-lock" class="d-none text-center p-5 bg-white border rounded"></div>
+                        <div id="btn-emitir-termo" class="d-none mt-3"><button class="btn btn-outline-success btn-block font-weight-bold py-3" onclick="emitirTermoVisita()"><i class="material-icons align-middle mr-2">picture_as_pdf</i> GERAR TERMO</button></div>
+                        <div id="btn-ver-termo" class="d-none mt-3"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Gestão de Setores -->
+    <div class="modal fade" id="setoresModal" tabindex="-1" role="dialog" aria-hidden="true">
+      <div class="modal-dialog modal-fullscreen-custom" role="document">
+        <div class="modal-content border-0">
+          <div class="modal-header bg-dark text-white py-3">
+            <h5 class="modal-title font-weight-bold d-flex align-items-center">
+              <i class="material-icons mr-2">dashboard</i> DASHBOARD E GESTÃO DE SETORES
+            </h5>
+            <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+          </div>
+          <div class="modal-body p-4 bg-light" style="overflow-y: auto; max-height: calc(100vh - 80px);">
+            
+            <!-- Dashboard Row -->
+            <div class="row mb-4">
+              <div class="col-xl-9 col-lg-8 mb-3 mb-lg-0">
+                <div class="card border-0 shadow-sm" style="border-radius: 20px;">
+                  <div class="card-body">
+                    <h6 class="font-weight-bold text-muted text-uppercase mb-4">Distribuição de Escolas e Técnicos</h6>
+                    <div style="min-height: 300px; height: auto;"><canvas id="chartSetores"></canvas></div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-xl-3 col-lg-4">
+                <div class="card border-0 shadow-sm h-100 bg-primary text-white" style="border-radius: 20px; min-height: 200px;">
+                  <div class="card-body d-flex flex-column justify-content-center text-center">
+                    <h1 class="display-4 font-weight-bold mb-0" id="total-escolas-dash">0</h1>
+                    <p class="text-uppercase font-weight-bold small mb-3" style="letter-spacing: 2px;">Escolas Mapeadas</p>
+                    <hr class="bg-white opacity-25 w-50 mx-auto">
+                    <div id="info-sede-dash" class="mt-2">
+                       <h4 class="font-weight-bold mb-0" id="count-to">0</h4>
+                       <small class="text-uppercase font-weight-bold">Escolas em Teófilo Otoni</small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center mb-3 mt-5">
+               <h5 class="font-weight-bold text-dark text-uppercase mb-0">Detalhamento por Setor</h5>
+               <span class="badge badge-dark px-3 py-2" style="border-radius: 10px;">Clique no setor para expandir</span>
+            </div>
+            <div id="container-setores-cards" class="row no-gutters align-items-start">
+               <!-- Preenchido via JS -->
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Gestão de Escolas -->
+    <div class="modal fade" id="escolasModal" tabindex="-1" role="dialog" aria-hidden="true">
+      <div class="modal-dialog modal-fullscreen-custom" role="document">
+        <div class="modal-content">
+          <div class="modal-header bg-dark text-white py-3">
+            <h5 class="modal-title font-weight-bold d-flex align-items-center">
+              <i class="material-icons mr-2">settings_suggest</i> CADASTRO DE UNIDADES ESCOLARES (DIM_ESCOLAS)
+            </h5>
+            <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+          </div>
+          <div class="modal-body p-0 bg-light d-flex flex-column">
+            <div class="bg-white p-4 shadow-sm border-bottom">
+              <div class="row align-items-center">
+                <div class="col-md-4 mb-2 mb-md-0">
+                  <div class="input-group">
+                    <div class="input-group-prepend"><span class="input-group-text bg-white border-right-0"><i class="material-icons text-muted">search</i></span></div>
+                    <input type="text" id="busca-escola" class="form-control border-left-0" placeholder="Buscar INEP ou Nome..." onkeyup="filtrarTabelaEscolas()">
+                  </div>
+                </div>
+                <div class="col-md-3 mb-2 mb-md-0">
+                  <select id="filtro-escola-municipio" class="form-control font-weight-bold" onchange="filtrarTabelaEscolas()" style="border-radius: 10px;">
+                    <option value="">Todos os Municípios</option>
+                  </select>
+                </div>
+                <div class="col-md-2 mb-2 mb-md-0">
+                  <select id="filtro-escola-setor" class="form-control font-weight-bold" onchange="filtrarTabelaEscolas()" style="border-radius: 10px;">
+                    <option value="">Todos Setores</option>
+                  </select>
+                </div>
+                <div class="col-md-3 text-md-right">
+                  <button class="btn btn-primary btn-block font-weight-bold py-2" style="border-radius: 12px;" onclick="novaEscola()">
+                    <i class="material-icons align-middle mr-1">add_circle</i> NOVO
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <div class="flex-grow-1 overflow-auto p-4">
+              <div class="card border-0 shadow-sm" style="border-radius: 15px;">
+                <div class="table-responsive">
+                  <table class="table table-hover mb-0" id="tabela-escolas">
+                    <thead class="bg-light">
+                      <tr>
+                        <th class="border-0 small font-weight-bold text-uppercase p-3">INEP</th>
+                        <th class="border-0 small font-weight-bold text-uppercase p-3">Escola</th>
+                        <th class="border-0 small font-weight-bold text-uppercase p-3">Município</th>
+                        <th class="border-0 small font-weight-bold text-uppercase p-3 text-center">Setor</th>
+                        <th class="border-0 small font-weight-bold text-uppercase p-3">Diretor(a)</th>
+                        <th class="border-0 small font-weight-bold text-uppercase p-3 text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody id="corpo-tabela-escolas">
+                      <!-- Preenchido via JS -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Formulário Escola -->
+    <div class="modal fade" id="escolaFormModal" tabindex="-1" role="dialog" aria-hidden="true" style="z-index: 1055;">
+      <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 20px;">
+          <div class="modal-header bg-primary text-white">
+            <h5 class="modal-title font-weight-bold" id="titulo-form-escola">CADASTRO DE ESCOLA</h5>
+            <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+          </div>
+          <form id="form-escola" onsubmit="event.preventDefault(); salvarDadosEscola();">
+            <div class="modal-body p-4">
+              <div class="row">
+                <div class="col-md-4 mb-3"><label class="small font-weight-bold text-uppercase">Cód. INEP</label><input type="text" id="esc-inep" class="form-control" required></div>
+                <div class="col-md-8 mb-3"><label class="small font-weight-bold text-uppercase">Nome da Escola</label><input type="text" id="esc-nome" class="form-control" required></div>
+                <div class="col-md-6 mb-3"><label class="small font-weight-bold text-uppercase">Município</label><input type="text" id="esc-municipio" class="form-control" required></div>
+                <div class="col-md-6 mb-3"><label class="small font-weight-bold text-uppercase">Setor/Região</label><input type="text" id="esc-setor" class="form-control" placeholder="Ex: 1, 2, 3..."></div>
+                <div class="col-md-6 mb-3"><label class="small font-weight-bold text-uppercase">E-mail Direção</label><input type="email" id="esc-email" class="form-control"></div>
+                <div class="col-md-6 mb-3"><label class="small font-weight-bold text-uppercase">Celular/WhatsApp Direção</label><input type="text" id="esc-fone" class="form-control"></div>
+                <div class="col-12 mb-3"><label class="small font-weight-bold text-uppercase">Endereço Completo</label><input type="text" id="esc-endereco" class="form-control"></div>
+                <div class="col-md-6 mb-3"><label class="small font-weight-bold text-uppercase">Latitude</label><input type="text" id="esc-lat" class="form-control"></div>
+                <div class="col-md-6 mb-3"><label class="small font-weight-bold text-uppercase">Longitude</label><input type="text" id="esc-long" class="form-control"></div>
+              </div>
+            </div>
+            <div class="modal-footer border-0 p-4">
+              <button type="button" class="btn btn-light font-weight-bold" data-dismiss="modal">CANCELAR</button>
+              <button type="submit" class="btn btn-primary font-weight-bold px-5">SALVAR CADASTRO</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Novo Chamado Técnico -->
+    <div class="modal fade" id="chamadoTecnicoModal" tabindex="-1" role="dialog" aria-hidden="true" style="z-index: 1050;">
+      <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 20px;">
+          <div class="modal-header bg-success text-white">
+            <h5 class="modal-title font-weight-bold">ABRIR CHAMADO TÉCNICO COMPLETO</h5>
+            <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+          </div>
+          <form id="form-chamado-tecnico" onsubmit="event.preventDefault(); salvarChamadoTecnico();">
+            <input type="hidden" id="tec-esc-inep">
+            <input type="hidden" id="tec-esc-nome">
+            <input type="hidden" id="tec-esc-municipio">
+            <input type="hidden" id="tec-esc-setor">
+            <div class="modal-body p-3">
+              <!-- Header Compacto: Escola -->
+              <div class="bg-light border rounded p-2 mb-3 d-flex justify-content-between align-items-center">
+                <div>
+                  <small class="text-muted font-weight-bold text-uppercase d-block" style="font-size: 10px;">Escola Selecionada</small>
+                  <span class="font-weight-bold text-primary" id="tec-esc-label" style="font-size: 14px;">Nenhuma escola selecionada</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="abrirGestaoEscolas(true)">Alterar</button>
+              </div>
+              
+              <div class="row">
+                <!-- Coluna Esquerda: Configuração do Chamado -->
+                <div class="col-lg-5 border-right">
+                  <div class="mb-3">
+                    <label class="small font-weight-bold text-uppercase mb-2">Origem do Chamado</label>
+                    <div class="d-flex flex-column">
+                      <div class="custom-control custom-radio mb-2">
+                        <input type="radio" id="origem-externo" name="tec-origem" class="custom-control-input" value="Externo – Técnico" onchange="toggleCamposSolicitante()" checked>
+                        <label class="custom-control-label font-weight-bold" for="origem-externo">Externo – Técnico <span class="text-muted font-weight-normal">(Solicitação Escola)</span></label>
+                      </div>
+                      <div class="custom-control custom-radio">
+                        <input type="radio" id="origem-preventivo" name="tec-origem" class="custom-control-input" value="Preventivo – Técnico" onchange="toggleCamposSolicitante()">
+                        <label class="custom-control-label font-weight-bold" for="origem-preventivo">Preventivo – Técnico <span class="text-muted font-weight-normal">(Planejado)</span></label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="mb-3">
+                    <label class="small font-weight-bold text-uppercase">Tipo de Solicitação</label>
+                    <div class="border rounded p-2 bg-white" style="height: 180px; overflow-y: auto;">
+                      <div class="custom-control custom-checkbox mb-1">
+                        <input type="checkbox" class="custom-control-input chk-tipo" id="chk-tipo-1" value="Suporte em equipamentos Sala de Informática">
+                        <label class="custom-control-label small" for="chk-tipo-1">Suporte equipamentos Sala Informática</label>
+                      </div>
+                      <div class="custom-control custom-checkbox mb-1">
+                        <input type="checkbox" class="custom-control-input chk-tipo" id="chk-tipo-2" value="Suporte em equipamentos da Área administrativa">
+                        <label class="custom-control-label small" for="chk-tipo-2">Suporte equipamentos Área administrativa</label>
+                      </div>
+                      <div class="custom-control custom-checkbox mb-1">
+                        <input type="checkbox" class="custom-control-input chk-tipo" id="chk-tipo-3" value="Serviços de manutenção e/ou vistoria em rede">
+                        <label class="custom-control-label small" for="chk-tipo-3">Manutenção/Vistoria de Rede</label>
+                      </div>
+                      <div class="custom-control custom-checkbox mb-1">
+                        <input type="checkbox" class="custom-control-input chk-tipo" id="chk-tipo-4" value="Laudo Técnico para alienação de bens inservíveis">
+                        <label class="custom-control-label small" for="chk-tipo-4">Laudo Técnico (Alienação)</label>
+                      </div>
+                      <div class="custom-control custom-checkbox mb-1">
+                        <input type="checkbox" class="custom-control-input chk-tipo" id="chk-tipo-outro-check" value="Outro" onchange="toggleTipoOutro()">
+                        <label class="custom-control-label small" for="chk-tipo-outro-check">Outro:</label>
+                      </div>
+                      <input type="text" id="tec-tipo-outro" class="form-control form-control-sm mt-1 d-none" placeholder="Especifique...">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Coluna Direita: Dados Solicitante e Detalhes -->
+                <div class="col-lg-7">
+                  <div id="container-solicitante" class="row">
+                    <div class="col-md-6 mb-2">
+                      <label class="small font-weight-bold text-uppercase">Nome Solicitante</label>
+                      <input type="text" id="tec-solicitante" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-md-6 mb-2">
+                      <label class="small font-weight-bold text-uppercase">Celular/WhatsApp</label>
+                      <input type="text" id="tec-celular" class="form-control form-control-sm" placeholder="(00) 00000-0000">
+                    </div>
+                    <div class="col-md-6 mb-2">
+                      <label class="small font-weight-bold text-uppercase">MASP</label>
+                      <input type="text" id="tec-masp" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-md-6 mb-2">
+                      <label class="small font-weight-bold text-uppercase">Cargo</label>
+                      <input type="text" id="tec-cargo" class="form-control form-control-sm">
+                    </div>
+                  </div>
+
+                  <div class="row mt-2">
+                    <div class="col-12">
+                      <label class="small font-weight-bold text-uppercase">Detalhamento / Atividade</label>
+                      <textarea id="tec-descricao" class="form-control" rows="6" placeholder="Descreva detalhadamente..." required></textarea>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer border-0 p-4">
+              <button type="button" class="btn btn-light font-weight-bold" data-dismiss="modal">CANCELAR</button>
+              <button type="submit" id="btn-gerar-chamado-tec" class="btn btn-success font-weight-bold px-5">GERAR CHAMADO</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Configurações -->
+    <div class="modal fade" id="configModal" tabindex="-1" role="dialog" aria-hidden="true" style="z-index: 1050;">
+      <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 20px;">
+          <div class="modal-header bg-secondary text-white">
+            <h5 class="modal-title font-weight-bold"><i class="material-icons mr-2 align-middle">settings</i> CONFIGURAÇÕES DO SISTEMA</h5>
+            <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+          </div>
+          <div class="modal-body p-0">
+            <ul class="nav nav-tabs nav-fill" id="configTab" role="tablist">
+              <li class="nav-item">
+                <a class="nav-link active" id="tecnicos-tab" data-toggle="tab" href="#tecnicos" role="tab">
+                  <i class="material-icons align-middle mr-1">badge</i> TÉCNICOS
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" id="feriados-tab" data-toggle="tab" href="#feriados" role="tab">
+                  <i class="material-icons align-middle mr-1">event_busy</i> FERIADOS
+                </a>
+              </li>
+            </ul>
+            
+            <div class="tab-content p-4" id="configTabContent">
+              <!-- ABA TÉCNICOS -->
+              <div class="tab-pane fade show active" id="tecnicos" role="tabpanel">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h6 class="font-weight-bold text-muted text-uppercase mb-0">Lista de Técnicos</h6>
+                  <button class="btn btn-sm btn-primary font-weight-bold" onclick="novoTecnico()">
+                    <i class="material-icons align-middle mr-1" style="font-size:16px">add</i> ADICIONAR
+                  </button>
+                </div>
+                
+                <div class="table-responsive border rounded" style="max-height: 400px;">
+                  <table class="table table-hover table-sm mb-0">
+                    <thead class="bg-light">
+                      <tr>
+                        <th class="border-0 pl-3">NOME</th>
+                        <th class="border-0">MASP</th>
+                        <th class="border-0">EMAIL</th>
+                        <th class="border-0 text-center">SETOR</th>
+                        <th class="border-0 text-center">ADMIN</th>
+                        <th class="border-0 text-right pr-3">AÇÃO</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tbody-tecnicos">
+                      <!-- JS Populates -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- ABA FERIADOS -->
+              <div class="tab-pane fade" id="feriados" role="tabpanel">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h6 class="font-weight-bold text-muted text-uppercase mb-0">Dias não úteis (SLA)</h6>
+                  <button class="btn btn-sm btn-primary font-weight-bold" onclick="novoFeriado()">
+                    <i class="material-icons align-middle mr-1" style="font-size:16px">add</i> ADICIONAR
+                  </button>
+                </div>
+
+                <div class="table-responsive border rounded" style="max-height: 400px;">
+                  <table class="table table-hover table-sm mb-0">
+                    <thead class="bg-light">
+                      <tr>
+                        <th class="border-0 pl-3">DATA</th>
+                        <th class="border-0">DESCRIÇÃO</th>
+                        <th class="border-0 text-right pr-3">AÇÃO</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tbody-feriados">
+                      <!-- JS Populates -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Form Técnico -->
+    <div class="modal fade" id="formTecnicoModal" tabindex="-1" role="dialog" style="z-index: 1058;">
+      <div class="modal-dialog modal-sm modal-dialog-centered" role="document">
+        <div class="modal-content shadow">
+          <div class="modal-header bg-dark text-white py-2">
+            <h6 class="modal-title font-weight-bold">DADOS TÉCNICO</h6>
+            <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+          </div>
+          <div class="modal-body">
+            <form id="form-tecnico" onsubmit="event.preventDefault(); salvarTecnico();">
+              <div class="form-group mb-2">
+                <label class="small font-weight-bold">EMAIL (Login Google)</label>
+                <input type="email" id="cfg-tec-email" class="form-control form-control-sm" required>
+              </div>
+              <div class="form-group mb-2">
+                <label class="small font-weight-bold">NOME EXIBIÇÃO</label>
+                <input type="text" id="cfg-tec-nome" class="form-control form-control-sm" required>
+              </div>
+              <div class="form-group mb-2">
+                <label class="small font-weight-bold">MASP</label>
+                <input type="text" id="cfg-tec-masp" class="form-control form-control-sm" placeholder="Opcional">
+              </div>
+              <div class="form-group mb-2">
+                <label class="small font-weight-bold">SETOR(ES)</label>
+                <input type="text" id="cfg-tec-setor" class="form-control form-control-sm" placeholder="Ex: 1, 2 ou Todos" required>
+                <small class="text-muted" style="font-size:10px">Use "Todos" para ver tudo.</small>
+              </div>
+              <div class="form-group mb-3">
+                 <label class="small font-weight-bold">ADMINISTRADOR?</label>
+                 <select id="cfg-tec-admin" class="form-control form-control-sm">
+                   <option value="FALSE">NÃO</option>
+                   <option value="TRUE">SIM</option>
+                 </select>
+              </div>
+              <button type="submit" class="btn btn-primary btn-block btn-sm font-weight-bold">SALVAR</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Form Feriado -->
+    <div class="modal fade" id="formFeriadoModal" tabindex="-1" role="dialog" style="z-index: 1058;">
+      <div class="modal-dialog modal-sm modal-dialog-centered" role="document">
+        <div class="modal-content shadow">
+          <div class="modal-header bg-dark text-white py-2">
+            <h6 class="modal-title font-weight-bold">NOVO FERIADO</h6>
+            <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+          </div>
+          <div class="modal-body">
+            <form id="form-feriado" onsubmit="event.preventDefault(); salvarFeriado();">
+              <div class="form-group mb-2">
+                <label class="small font-weight-bold">DATA</label>
+                <input type="date" id="cfg-fer-data" class="form-control form-control-sm" required>
+              </div>
+              <div class="form-group mb-3">
+                <label class="small font-weight-bold">DESCRIÇÃO</label>
+                <input type="text" id="cfg-fer-desc" class="form-control form-control-sm" placeholder="Ex: Carnaval" required>
+              </div>
+              <button type="submit" class="btn btn-primary btn-block btn-sm font-weight-bold">SALVAR</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <?!= include('js'); ?>
+  </body>
+</html>
